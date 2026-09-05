@@ -379,24 +379,50 @@ const CATEGORIES = [
 ];
 
 /* =========================================================
-   PENYIMPANAN (window.storage bila tersedia, fallback memori)
+   PENYIMPANAN
+   Urutan prioritas:
+   1) window.storage  -> tersedia saat aplikasi dibuka dari dalam Claude
+   2) localStorage    -> tersedia saat file ini dibuka langsung di browser
+                         (data tersimpan permanen di browser tsb, tidak perlu isi ulang)
+   3) memori sementara -> cadangan terakhir jika keduanya diblokir browser
    ========================================================= */
-const HAS_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
+const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
+const HAS_LOCAL_STORAGE = (() => {
+  try { const k='__test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }
+  catch(e){ return false; }
+})();
 const memoryFallback = {};
+const STORE_PREFIX = 'kepegawaian_';
+
 const Store = {
   async get(key, fallback){
-    if(!HAS_STORAGE) return (key in memoryFallback) ? memoryFallback[key] : fallback;
-    try{
-      const r = await window.storage.get(key);
-      return r ? JSON.parse(r.value) : fallback;
-    }catch(e){ return fallback; }
+    if(HAS_APP_STORAGE){
+      try{
+        const r = await window.storage.get(key);
+        if(r) return JSON.parse(r.value);
+      }catch(e){ /* lanjut ke fallback di bawah */ }
+    }
+    if(HAS_LOCAL_STORAGE){
+      try{
+        const raw = localStorage.getItem(STORE_PREFIX + key);
+        if(raw != null) return JSON.parse(raw);
+      }catch(e){ /* lanjut ke memori */ }
+    }
+    return (key in memoryFallback) ? memoryFallback[key] : fallback;
   },
   async set(key, value){
-    if(!HAS_STORAGE){ memoryFallback[key] = value; return; }
-    try{ await window.storage.set(key, JSON.stringify(value)); }
-    catch(e){ console.error('Gagal menyimpan', key, e); }
+    memoryFallback[key] = value; // selalu simpan juga di memori untuk sesi berjalan
+    if(HAS_APP_STORAGE){
+      try{ await window.storage.set(key, JSON.stringify(value)); }
+      catch(e){ console.error('Gagal menyimpan ke window.storage', key, e); }
+    }
+    if(HAS_LOCAL_STORAGE){
+      try{ localStorage.setItem(STORE_PREFIX + key, JSON.stringify(value)); }
+      catch(e){ console.error('Gagal menyimpan ke localStorage', key, e); }
+    }
   }
 };
+const HAS_STORAGE = HAS_APP_STORAGE || HAS_LOCAL_STORAGE;
 
 /* =========================================================
    STATE
@@ -933,9 +959,12 @@ function panelPengaturanHTML(){
     </div>
     <div class="card">
       <h2>Tentang Penyimpanan</h2>
-      <p class="hint">${HAS_STORAGE
-        ? 'Data disimpan otomatis pada penyimpanan aplikasi ini sehingga tetap ada saat Anda membuka kembali percakapan ini.'
-        : 'Penyimpanan permanen tidak terdeteksi pada lingkungan ini — data hanya bertahan selama halaman terbuka. Simpan pekerjaan Anda secara berkala lewat tombol Ekspor Excel atau Simpan ke Google Sheets.'}</p>
+      <p class="hint">${HAS_APP_STORAGE
+        ? 'Data (pengaturan, data pegawai, dan data yang diinput) disimpan otomatis pada penyimpanan aplikasi ini sehingga tetap ada saat Anda membuka kembali percakapan ini.'
+        : (HAS_LOCAL_STORAGE
+            ? 'Data (pengaturan, data pegawai, dan data yang diinput) disimpan otomatis di penyimpanan browser ini (localStorage). Selama Anda membuka file ini di browser dan perangkat yang sama serta tidak membersihkan data situs, Anda tidak perlu mengisi ulang Pengaturan Koneksi maupun memuat ulang data pegawai setiap kali dibuka.'
+            : 'Penyimpanan permanen tidak terdeteksi pada browser ini (mungkin mode penyamaran/privat) — data hanya bertahan selama halaman terbuka. Simpan pekerjaan Anda secara berkala lewat tombol Ekspor Excel atau Simpan ke Google Sheets.')}</p>
+      ${HAS_LOCAL_STORAGE && !HAS_APP_STORAGE ? '<p class="hint">Catatan: penyimpanan ini melekat pada browser, bukan pada file HTML-nya. Jika file dibuka di komputer/browser lain, atau data situs dibersihkan, Pengaturan Koneksi perlu diisi ulang satu kali.</p>' : ''}
     </div>
   </section>`;
 }
@@ -953,7 +982,7 @@ async function init(){
 
   state.employees = await Store.get('employees', []);
   state.records = await Store.get('records', []);
-  state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Pegawai' });
+  state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Sheet1' });
 
   document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
   document.getElementById('inpSheetPegawai').value = state.settings.sheetPegawai || 'Pegawai';
@@ -988,7 +1017,7 @@ async function init(){
   document.getElementById('btnSaveSettings').addEventListener('click', ()=>{
     state.settings = {
       webAppUrl: document.getElementById('inpWebAppUrl').value.trim(),
-      sheetPegawai: document.getElementById('inpSheetPegawai') ? document.getElementById('inpSheetPegawai').value.trim() : 'Pegawai'
+      sheetPegawai: document.getElementById('inpSheetPegawai') ? document.getElementById('inpSheetPegawai').value.trim() : 'Sheet1'
     };
     Store.set('settings', state.settings);
     showBanner('settingsBanner','ok','Pengaturan tersimpan.');
