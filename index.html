@@ -1,0 +1,1009 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Aplikasi Administrasi Kepegawaian</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+  :root{
+    --bg:#F6F4EE;
+    --surface:#FFFFFF;
+    --ink:#1C2B45;
+    --ink-soft:#5A6A85;
+    --accent:#A9762F;
+    --accent-soft:#EFE4CC;
+    --line:#DCD5C4;
+    --line-strong:#C7BFA9;
+    --success:#3F6B4E;
+    --success-soft:#E4EDE6;
+    --danger:#8C3B33;
+    --danger-soft:#F3E4E1;
+    --radius:3px;
+    --serif:'Source Serif 4', Georgia, serif;
+    --sans:'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--sans);
+    font-size:14px;
+    line-height:1.5;
+  }
+  a{color:var(--accent);}
+  header.app-header{
+    background:var(--ink);
+    color:var(--bg);
+    padding:18px 28px;
+    display:flex;
+    align-items:baseline;
+    justify-content:space-between;
+    flex-wrap:wrap;
+    gap:8px;
+    border-bottom:3px solid var(--accent);
+  }
+  header.app-header .brand{
+    display:flex;
+    flex-direction:column;
+    gap:2px;
+  }
+  header.app-header h1{
+    font-family:var(--serif);
+    font-weight:600;
+    font-size:22px;
+    margin:0;
+    letter-spacing:0.2px;
+  }
+  header.app-header .subtitle{
+    font-size:12.5px;
+    color:#C7CEDC;
+  }
+  header.app-header .sheet-link{
+    font-size:12.5px;
+    color:var(--bg);
+    border:1px solid rgba(255,255,255,0.35);
+    padding:6px 12px;
+    border-radius:var(--radius);
+    text-decoration:none;
+    white-space:nowrap;
+  }
+  header.app-header .sheet-link:hover{
+    background:rgba(255,255,255,0.08);
+  }
+  .layout{
+    display:grid;
+    grid-template-columns:220px 1fr;
+    min-height:calc(100vh - 68px);
+  }
+  nav.tabs{
+    background:#EFEBE0;
+    border-right:1px solid var(--line);
+    padding:16px 0;
+  }
+  nav.tabs .group-label{
+    font-size:11px;
+    color:var(--ink-soft);
+    padding:10px 18px 4px;
+    text-transform:none;
+  }
+  nav.tabs button{
+    display:block;
+    width:100%;
+    text-align:left;
+    background:none;
+    border:none;
+    border-left:3px solid transparent;
+    padding:10px 16px 10px 15px;
+    font-family:var(--sans);
+    font-size:13.5px;
+    color:var(--ink);
+    cursor:pointer;
+  }
+  nav.tabs button:hover{
+    background:#E4DECC;
+  }
+  nav.tabs button.active{
+    background:var(--surface);
+    border-left-color:var(--accent);
+    font-weight:600;
+  }
+  main{
+    padding:26px 32px;
+    max-width:1080px;
+  }
+  .panel{
+    display:none;
+  }
+  .panel.active{
+    display:block;
+  }
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:22px 24px;
+    margin-bottom:20px;
+  }
+  .card h2{
+    font-family:var(--serif);
+    font-size:19px;
+    font-weight:600;
+    margin:0 0 4px;
+  }
+  .card .hint{
+    color:var(--ink-soft);
+    font-size:13px;
+    margin:0 0 16px;
+  }
+  .field-grid{
+    display:grid;
+    grid-template-columns:1fr 1fr;
+    gap:14px 18px;
+  }
+  .field{
+    display:flex;
+    flex-direction:column;
+    gap:5px;
+  }
+  .field.full{ grid-column:1 / -1; }
+  .field label{
+    font-size:12.5px;
+    color:var(--ink-soft);
+    font-weight:500;
+  }
+  input[type=text], input[type=date], input[type=number], input[type=url], select, textarea{
+    font-family:var(--sans);
+    font-size:13.5px;
+    padding:8px 10px;
+    border:1px solid var(--line-strong);
+    border-radius:var(--radius);
+    background:#fff;
+    color:var(--ink);
+  }
+  textarea{resize:vertical;min-height:60px;}
+  input:focus, select:focus, textarea:focus, button:focus-visible{
+    outline:2px solid var(--accent);
+    outline-offset:1px;
+  }
+  .btn{
+    font-family:var(--sans);
+    font-size:13.5px;
+    font-weight:600;
+    padding:9px 16px;
+    border-radius:var(--radius);
+    border:1px solid var(--ink);
+    background:var(--ink);
+    color:#fff;
+    cursor:pointer;
+  }
+  .btn:hover{ background:#132038; }
+  .btn.secondary{
+    background:#fff;
+    color:var(--ink);
+    border:1px solid var(--line-strong);
+  }
+  .btn.secondary:hover{ background:#F1EEE4; }
+  .btn.accent{
+    background:var(--accent);
+    border-color:var(--accent);
+    color:#fff;
+  }
+  .btn.accent:hover{ background:#93641F; }
+  .btn.danger{
+    background:#fff;
+    color:var(--danger);
+    border:1px solid var(--danger);
+  }
+  .btn.danger:hover{ background:var(--danger-soft); }
+  .btn:disabled{ opacity:0.5; cursor:not-allowed; }
+  .btn-row{ display:flex; gap:10px; flex-wrap:wrap; margin-top:16px; }
+  .toggle-row{
+    display:flex; align-items:center; gap:10px;
+    padding:10px 12px;
+    background:var(--accent-soft);
+    border:1px solid #DFCB9F;
+    border-radius:var(--radius);
+    margin-bottom:16px;
+    font-size:13px;
+  }
+  .toggle-row input{ width:16px; height:16px; }
+  .employee-search{ position:relative; }
+  .employee-results{
+    position:absolute; z-index:5; top:100%; left:0; right:0;
+    background:#fff; border:1px solid var(--line-strong); border-top:none;
+    max-height:180px; overflow-y:auto;
+    box-shadow:0 4px 10px rgba(0,0,0,0.08);
+  }
+  .employee-results div{
+    padding:8px 10px; font-size:13px; cursor:pointer; border-bottom:1px solid #F1EEE4;
+  }
+  .employee-results div:hover{ background:var(--accent-soft); }
+  .selected-employee{
+    font-size:12.5px; color:var(--success); margin-top:4px;
+  }
+  table.data-table{
+    width:100%; border-collapse:collapse; font-size:13px;
+  }
+  table.data-table th, table.data-table td{
+    border:1px solid var(--line);
+    padding:7px 9px;
+    text-align:left;
+    vertical-align:top;
+  }
+  table.data-table th{
+    background:#EFEBE0;
+    font-weight:600;
+    font-size:12px;
+    color:var(--ink);
+  }
+  table.data-table tr:nth-child(even) td{ background:#FCFBF8; }
+  .badge{
+    display:inline-block; padding:2px 8px; border-radius:12px; font-size:11px; font-weight:600;
+  }
+  .badge.synced{ background:var(--success-soft); color:var(--success); }
+  .badge.unsynced{ background:var(--danger-soft); color:var(--danger); }
+  .filters-row{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:14px; align-items:flex-end; }
+  .filters-row .field{ min-width:180px; }
+  .summary-cards{ display:flex; gap:12px; flex-wrap:wrap; margin-bottom:18px; }
+  .summary-card{
+    flex:1; min-width:110px;
+    border:1px solid var(--line); border-left:3px solid var(--accent);
+    background:#fff; padding:10px 12px; border-radius:var(--radius);
+  }
+  .summary-card .num{ font-family:var(--serif); font-size:22px; font-weight:600; }
+  .summary-card .lbl{ font-size:11.5px; color:var(--ink-soft); }
+  .mapping-row{ display:grid; grid-template-columns:1fr 1fr; gap:10px; align-items:center; padding:6px 0; border-bottom:1px solid #EFEBE0; }
+  .preview-wrap{ overflow-x:auto; margin-top:10px; }
+  .banner{
+    padding:10px 14px; border-radius:var(--radius); font-size:13px; margin-bottom:16px;
+  }
+  .banner.warn{ background:#FBF2DE; border:1px solid #E7CB8E; color:#6E4E10; }
+  .banner.info{ background:#E7EEF5; border:1px solid #B9CBDE; color:#254165; }
+  .banner.ok{ background:var(--success-soft); border:1px solid #B9D2C0; color:var(--success); }
+  .empty-state{ padding:30px 10px; text-align:center; color:var(--ink-soft); font-size:13.5px; }
+  code.inline{ background:#EFEBE0; padding:1px 5px; border-radius:3px; font-size:12px; }
+  footer.app-footer{ text-align:center; padding:16px; font-size:11.5px; color:var(--ink-soft); }
+  @media (max-width: 820px){
+    .layout{ grid-template-columns:1fr; }
+    nav.tabs{ display:flex; overflow-x:auto; border-right:none; border-bottom:1px solid var(--line); padding:8px; }
+    nav.tabs button{ border-left:none; border-bottom:3px solid transparent; white-space:nowrap; }
+    nav.tabs button.active{ border-bottom-color:var(--accent); }
+    .field-grid{ grid-template-columns:1fr; }
+    main{ padding:18px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="app-header">
+  <div class="brand">
+    <h1>Administrasi Kepegawaian</h1>
+    <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
+  </div>
+  <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Buka Spreadsheet Tujuan &#8599;</a>
+</header>
+
+<div class="layout">
+  <nav class="tabs" id="tabNav">
+    <div class="group-label">Data Pegawai</div>
+    <button data-tab="sumber" class="active">Sumber Data Pegawai</button>
+    <div class="group-label">Input Data</div>
+    <!-- category buttons injected by JS -->
+    <div class="group-label">Laporan</div>
+    <button data-tab="rekap">Rekap &amp; Ekspor</button>
+    <div class="group-label">Lainnya</div>
+    <button data-tab="pengaturan">Pengaturan</button>
+  </nav>
+
+  <main id="mainArea">
+    <!-- panels injected by JS -->
+  </main>
+</div>
+
+<footer class="app-footer">Data tersimpan pada penyimpanan aplikasi ini &middot; gunakan tombol Simpan ke Google Sheets dan Ekspor Excel secara berkala agar data aman.</footer>
+
+<script>
+/* =========================================================
+   KONFIGURASI KATEGORI
+   ========================================================= */
+const CATEGORIES = [
+  { key:'cuti', label:'Izin Cuti', sheet:'Izin Cuti', fields:[
+    { id:'jenisCuti', label:'Jenis Cuti', type:'select', options:['Cuti Tahunan','Cuti Sakit','Cuti Besar','Cuti Melahirkan','Cuti Alasan Penting','Cuti di Luar Tanggungan Negara'] },
+    { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
+    { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
+    { id:'jumlahHari', label:'Jumlah Hari', type:'number' },
+    { id:'alasan', label:'Alasan / Keperluan', type:'text' },
+    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
+    { id:'pejabat', label:'Pejabat Pemberi Izin', type:'text' },
+  ]},
+  { key:'pernikahan', label:'Izin Pernikahan', sheet:'Izin Pernikahan', fields:[
+    { id:'tglNikah', label:'Tanggal Pernikahan', type:'date' },
+    { id:'namaPasangan', label:'Nama Pasangan', type:'text' },
+    { id:'tglMulai', label:'Tanggal Mulai Cuti', type:'date' },
+    { id:'tglSelesai', label:'Tanggal Selesai Cuti', type:'date' },
+    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
+  ]},
+  { key:'perceraian', label:'Izin Perceraian', sheet:'Izin Perceraian', fields:[
+    { id:'tglPengajuan', label:'Tanggal Pengajuan', type:'date' },
+    { id:'alasan', label:'Alasan', type:'text' },
+    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
+    { id:'status', label:'Status', type:'select', options:['Diajukan','Disetujui','Ditolak'] },
+    { id:'nomorPutusan', label:'Nomor Putusan Pengadilan', type:'text' },
+  ]},
+  { key:'keluarnegeri', label:'Izin Keluar Negeri', sheet:'Izin Keluar Negeri', fields:[
+    { id:'negaraTujuan', label:'Negara Tujuan', type:'text' },
+    { id:'keperluan', label:'Keperluan', type:'select', options:['Dinas','Pribadi / Cuti'] },
+    { id:'tglBerangkat', label:'Tanggal Berangkat', type:'date' },
+    { id:'tglKembali', label:'Tanggal Kembali', type:'date' },
+    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
+    { id:'sumberBiaya', label:'Sumber Biaya', type:'text' },
+  ]},
+  { key:'diklat', label:'Diklat', sheet:'Diklat', fields:[
+    { id:'namaDiklat', label:'Nama Diklat', type:'text' },
+    { id:'penyelenggara', label:'Penyelenggara', type:'text' },
+    { id:'jenisDiklat', label:'Jenis Diklat', type:'select', options:['Struktural','Fungsional','Teknis','Lainnya'] },
+    { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
+    { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
+    { id:'tempat', label:'Tempat Penyelenggaraan', type:'text' },
+    { id:'nomorSertifikat', label:'Nomor Sertifikat', type:'text' },
+  ]},
+  { key:'magang', label:'Magang', sheet:'Magang', fields:[
+    { id:'asalInstansi', label:'Asal Sekolah / Institusi', type:'text' },
+    { id:'unitPenempatan', label:'Unit Penempatan', type:'text' },
+    { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
+    { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
+    { id:'pembimbing', label:'Pembimbing / Mentor', type:'text' },
+  ]},
+  { key:'ujikom', label:'Ujian Kompetensi', sheet:'Ujian Kompetensi', fields:[
+    { id:'jenisUjian', label:'Jenis Ujian', type:'select', options:['Uji Kompetensi Jabatan','Assessment Manajerial','Uji Kompetensi Teknis','Lainnya'] },
+    { id:'tglUjian', label:'Tanggal Ujian', type:'date' },
+    { id:'penyelenggara', label:'Penyelenggara', type:'text' },
+    { id:'nilai', label:'Nilai', type:'text' },
+    { id:'hasil', label:'Hasil', type:'select', options:['Lulus / Kompeten','Tidak Lulus / Belum Kompeten'] },
+  ]},
+  { key:'disiplin', label:'Hukuman Disiplin', sheet:'Hukuman Disiplin', fields:[
+    { id:'tingkat', label:'Tingkat Hukuman', type:'select', options:['Ringan','Sedang','Berat'] },
+    { id:'jenisHukuman', label:'Jenis Hukuman', type:'text' },
+    { id:'pelanggaran', label:'Bentuk Pelanggaran', type:'text' },
+    { id:'nomorSk', label:'Nomor SK', type:'text' },
+    { id:'tglSk', label:'Tanggal SK', type:'date' },
+    { id:'pejabatPenetap', label:'Pejabat Penetap', type:'text' },
+  ]},
+];
+
+/* =========================================================
+   PENYIMPANAN (window.storage bila tersedia, fallback memori)
+   ========================================================= */
+const HAS_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
+const memoryFallback = {};
+const Store = {
+  async get(key, fallback){
+    if(!HAS_STORAGE) return (key in memoryFallback) ? memoryFallback[key] : fallback;
+    try{
+      const r = await window.storage.get(key);
+      return r ? JSON.parse(r.value) : fallback;
+    }catch(e){ return fallback; }
+  },
+  async set(key, value){
+    if(!HAS_STORAGE){ memoryFallback[key] = value; return; }
+    try{ await window.storage.set(key, JSON.stringify(value)); }
+    catch(e){ console.error('Gagal menyimpan', key, e); }
+  }
+};
+
+/* =========================================================
+   STATE
+   ========================================================= */
+let state = {
+  employees: [],       // {nip, nama, jabatan, unit}
+  records: [],         // input records
+  settings: { webAppUrl:'', sheetPegawai:'Pegawai' },
+  rawImport: null,     // { headers:[], rows:[[...]] } sementara sebelum mapping
+  selectedEmployee: {} // per-kategori pilihan pegawai sementara { [catKey]: employeeObj|null }
+};
+
+function genId(){ return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+
+/* =========================================================
+   INISIALISASI NAVIGASI & PANEL
+   ========================================================= */
+const tabNav = document.getElementById('tabNav');
+const mainArea = document.getElementById('mainArea');
+
+function buildNav(){
+  CATEGORIES.forEach(cat=>{
+    const btn = document.createElement('button');
+    btn.dataset.tab = 'cat:' + cat.key;
+    btn.textContent = cat.label;
+    tabNav.insertBefore(btn, document.querySelector('.group-label:nth-of-type(2) + button ~ .group-label'));
+  });
+  // Re-order: simplest is to rebuild nav fully in desired order
+  tabNav.innerHTML = '';
+  const addLabel = (t)=>{ const d=document.createElement('div'); d.className='group-label'; d.textContent=t; tabNav.appendChild(d); };
+  const addBtn = (tab,label)=>{ const b=document.createElement('button'); b.dataset.tab=tab; b.textContent=label; tabNav.appendChild(b); };
+  addLabel('Data Pegawai');
+  addBtn('sumber','Sumber Data Pegawai');
+  addLabel('Input Data');
+  CATEGORIES.forEach(cat=> addBtn('cat:'+cat.key, cat.label));
+  addLabel('Laporan');
+  addBtn('rekap','Rekap & Ekspor');
+  addLabel('Lainnya');
+  addBtn('pengaturan','Pengaturan');
+
+  tabNav.addEventListener('click', e=>{
+    const btn = e.target.closest('button[data-tab]');
+    if(!btn) return;
+    showTab(btn.dataset.tab);
+  });
+}
+
+function showTab(tab){
+  document.querySelectorAll('nav.tabs button').forEach(b=> b.classList.toggle('active', b.dataset.tab===tab));
+  document.querySelectorAll('.panel').forEach(p=> p.classList.toggle('active', p.id === 'panel-' + tab.replace(':','-')));
+  if(tab === 'rekap') renderRekap();
+}
+
+/* =========================================================
+   PANEL: SUMBER DATA PEGAWAI
+   ========================================================= */
+function panelSumberHTML(){
+  return `
+  <section class="panel active" id="panel-sumber">
+    <div class="card">
+      <h2>Ambil dari Google Spreadsheet</h2>
+      <p class="hint">Karena keamanan browser, aplikasi ini tidak bisa membaca Google Spreadsheet secara langsung. Ambil data lewat Google Apps Script Web App (URL diatur di tab <strong>Pengaturan</strong>) yang membaca sheet data pegawai pada aplikasi pencarian pegawai Anda.</p>
+      <div class="field-grid">
+        <div class="field">
+          <label>Nama Sheet Data Pegawai</label>
+          <input type="text" id="inpSheetPegawai" placeholder="Pegawai">
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnFetchPegawai">Ambil Data Pegawai dari Spreadsheet</button>
+      </div>
+      <div id="sumberBanner"></div>
+    </div>
+
+    <div class="card">
+      <h2>Atau Unggah File Excel Lokal</h2>
+      <p class="hint">Gunakan ini jika data pegawai tersimpan di komputer Anda (format .xlsx, .xls, atau .csv). Kolom akan disesuaikan secara manual di bawah setelah file terbaca.</p>
+      <input type="file" id="inpFileExcel" accept=".xlsx,.xls,.csv">
+    </div>
+
+    <div class="card" id="mappingCard" style="display:none;">
+      <h2>Sesuaikan Kolom</h2>
+      <p class="hint">Cocokkan kolom pada file/sheet Anda dengan data standar yang dipakai aplikasi ini.</p>
+      <div id="mappingArea"></div>
+      <div class="preview-wrap"><table class="data-table" id="previewTable"></table></div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnUseMapping">Gunakan Data Ini</button>
+        <button class="btn secondary" id="btnCancelMapping">Batal</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Data Pegawai Termuat</h2>
+      <p class="hint" id="employeeCountText">Belum ada data pegawai dimuat.</p>
+      <div class="field">
+        <label>Cari untuk menguji data (nama / NIP)</label>
+        <input type="text" id="testSearchEmployee" placeholder="Ketik nama atau NIP...">
+      </div>
+      <div class="preview-wrap"><table class="data-table" id="employeeTable"></table></div>
+    </div>
+  </section>`;
+}
+
+let STANDARD_FIELDS = [
+  { key:'nip', label:'NIP / Identitas', guess:['nip','nik','identitas'] },
+  { key:'nama', label:'Nama', guess:['nama','name'] },
+  { key:'jabatan', label:'Jabatan', guess:['jabatan','posisi','position'] },
+  { key:'unit', label:'Unit Kerja', guess:['unit','satker','bidang','bagian'] },
+];
+
+function guessColumn(header, guesses){
+  const h = header.toLowerCase();
+  return guesses.some(g=> h.includes(g));
+}
+
+function handleRawImport(headers, rows){
+  state.rawImport = { headers, rows };
+  document.getElementById('mappingCard').style.display = 'block';
+  const mappingArea = document.getElementById('mappingArea');
+  mappingArea.innerHTML = STANDARD_FIELDS.map(f=>{
+    let guessedIdx = headers.findIndex(h=> guessColumn(String(h||''), f.guess));
+    const options = headers.map((h,i)=>`<option value="${i}" ${i===guessedIdx?'selected':''}>${h || '(Kolom '+(i+1)+')'}</option>`).join('');
+    return `<div class="mapping-row">
+      <label>${f.label}</label>
+      <select data-map="${f.key}">
+        <option value="-1">— tidak dipakai —</option>
+        ${options}
+      </select>
+    </div>`;
+  }).join('');
+
+  const previewTable = document.getElementById('previewTable');
+  const previewRows = rows.slice(0,5);
+  previewTable.innerHTML = '<tr>' + headers.map(h=>`<th>${h||''}</th>`).join('') + '</tr>' +
+    previewRows.map(r=> '<tr>' + headers.map((h,i)=>`<td>${r[i] ?? ''}</td>`).join('') + '</tr>').join('');
+}
+
+function confirmMapping(){
+  const selects = document.querySelectorAll('#mappingArea select[data-map]');
+  const mapping = {};
+  selects.forEach(s=> mapping[s.dataset.map] = parseInt(s.value,10));
+  const { rows } = state.rawImport;
+  const employees = rows
+    .filter(r=> r && r.some(c=> c !== '' && c != null))
+    .map(r=>({
+      nip: mapping.nip>=0 ? String(r[mapping.nip] ?? '').trim() : '',
+      nama: mapping.nama>=0 ? String(r[mapping.nama] ?? '').trim() : '',
+      jabatan: mapping.jabatan>=0 ? String(r[mapping.jabatan] ?? '').trim() : '',
+      unit: mapping.unit>=0 ? String(r[mapping.unit] ?? '').trim() : '',
+    }))
+    .filter(e=> e.nama);
+  state.employees = employees;
+  Store.set('employees', employees);
+  document.getElementById('mappingCard').style.display = 'none';
+  state.rawImport = null;
+  renderEmployeeSummary();
+  showBanner('sumberBanner', 'ok', `Berhasil memuat ${employees.length} data pegawai.`);
+}
+
+function renderEmployeeSummary(){
+  const count = state.employees.length;
+  document.getElementById('employeeCountText').textContent = count
+    ? `${count} pegawai termuat dan siap digunakan pada form input.`
+    : 'Belum ada data pegawai dimuat.';
+  renderEmployeeTable(state.employees.slice(0,50));
+}
+
+function renderEmployeeTable(list){
+  const table = document.getElementById('employeeTable');
+  if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data.</td></tr>'; return; }
+  table.innerHTML = '<tr><th>NIP</th><th>Nama</th><th>Jabatan</th><th>Unit Kerja</th></tr>' +
+    list.map(e=>`<tr><td>${e.nip||'-'}</td><td>${e.nama}</td><td>${e.jabatan||'-'}</td><td>${e.unit||'-'}</td></tr>`).join('');
+}
+
+function showBanner(elId, type, msg){
+  const el = document.getElementById(elId);
+  if(!el) return;
+  el.innerHTML = `<div class="banner ${type}">${msg}</div>`;
+}
+
+async function fetchPegawaiFromGoogle(){
+  const url = state.settings.webAppUrl;
+  const sheetName = document.getElementById('inpSheetPegawai').value.trim() || 'Pegawai';
+  if(!url){
+    showBanner('sumberBanner','warn','Atur URL Web App Google Apps Script terlebih dahulu di tab Pengaturan.');
+    return;
+  }
+  showBanner('sumberBanner','info','Mengambil data, mohon tunggu...');
+  try{
+    const res = await fetch(`${url}?action=getPegawai&sheet=${encodeURIComponent(sheetName)}`);
+    const json = await res.json();
+    if(json.error){ showBanner('sumberBanner','warn', 'Gagal: ' + json.error); return; }
+    const data = json.data || [];
+    if(!data.length){ showBanner('sumberBanner','warn','Sheet kosong atau tidak ditemukan.'); return; }
+    const headers = data[0];
+    const rows = data.slice(1);
+    handleRawImport(headers, rows);
+    showBanner('sumberBanner','ok','Data berhasil diambil. Silakan cocokkan kolom di bawah.');
+  }catch(err){
+    showBanner('sumberBanner','warn','Gagal terhubung ke Web App. Periksa URL dan pengaturan deployment (akses: Siapa saja). Detail: ' + err.message);
+  }
+}
+
+function handleExcelFile(file){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    const wb = XLSX.read(e.target.result, { type:'binary' });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:'' });
+    if(!aoa.length){ showBanner('sumberBanner','warn','File kosong.'); return; }
+    handleRawImport(aoa[0], aoa.slice(1));
+  };
+  reader.readAsBinaryString(file);
+}
+
+/* =========================================================
+   PANEL: FORM KATEGORI
+   ========================================================= */
+function fieldHTML(catKey, f){
+  const id = `f_${catKey}_${f.id}`;
+  if(f.type === 'select'){
+    return `<div class="field"><label for="${id}">${f.label}</label>
+      <select id="${id}"><option value="">— pilih —</option>${f.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div>`;
+  }
+  return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"></div>`;
+}
+
+function panelCategoryHTML(cat){
+  return `
+  <section class="panel" id="panel-cat-${cat.key}">
+    <div class="card">
+      <h2>${cat.label}</h2>
+      <p class="hint">Pilih pegawai dari data yang telah dimuat, atau isi manual untuk pegawai lama / peserta magang / pihak non-pegawai.</p>
+
+      <div class="toggle-row">
+        <input type="checkbox" id="manual_${cat.key}">
+        <label for="manual_${cat.key}">Input manual (pegawai lama, peserta magang, atau non-pegawai)</label>
+      </div>
+
+      <div id="pegawaiPicker_${cat.key}">
+        <div class="field-grid">
+          <div class="field full employee-search">
+            <label>Cari Pegawai (nama / NIP)</label>
+            <input type="text" id="search_${cat.key}" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+            <div class="employee-results" id="results_${cat.key}" style="display:none;"></div>
+            <div class="selected-employee" id="selected_${cat.key}"></div>
+          </div>
+        </div>
+      </div>
+
+      <div id="manualFields_${cat.key}" style="display:none;">
+        <div class="field-grid">
+          <div class="field"><label>Nama</label><input type="text" id="manualNama_${cat.key}"></div>
+          <div class="field"><label>NIP / Keterangan (mis. Alumni / Peserta Magang)</label><input type="text" id="manualNip_${cat.key}"></div>
+          <div class="field"><label>Jabatan / Asal Instansi</label><input type="text" id="manualJabatan_${cat.key}"></div>
+          <div class="field"><label>Unit Kerja / Sekolah-Universitas</label><input type="text" id="manualUnit_${cat.key}"></div>
+        </div>
+      </div>
+
+      <hr style="border:none;border-top:1px solid var(--line);margin:18px 0;">
+
+      <div class="field-grid">
+        ${cat.fields.map(f=> fieldHTML(cat.key, f)).join('')}
+        <div class="field full"><label>Catatan Tambahan</label><textarea id="catatan_${cat.key}"></textarea></div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn accent" data-save="${cat.key}">Simpan Data</button>
+        <button class="btn secondary" data-reset="${cat.key}">Bersihkan Form</button>
+      </div>
+      <div id="formBanner_${cat.key}"></div>
+    </div>
+  </section>`;
+}
+
+function wireCategoryPanel(cat){
+  const manualCheckbox = document.getElementById(`manual_${cat.key}`);
+  manualCheckbox.addEventListener('change', ()=>{
+    document.getElementById(`pegawaiPicker_${cat.key}`).style.display = manualCheckbox.checked ? 'none' : 'block';
+    document.getElementById(`manualFields_${cat.key}`).style.display = manualCheckbox.checked ? 'block' : 'none';
+    state.selectedEmployee[cat.key] = null;
+  });
+
+  const searchInput = document.getElementById(`search_${cat.key}`);
+  const resultsBox = document.getElementById(`results_${cat.key}`);
+  searchInput.addEventListener('input', ()=>{
+    const q = searchInput.value.trim().toLowerCase();
+    if(q.length < 2){ resultsBox.style.display='none'; return; }
+    const matches = state.employees.filter(e=>
+      (e.nama||'').toLowerCase().includes(q) || (e.nip||'').toLowerCase().includes(q)
+    ).slice(0,15);
+    if(!matches.length){ resultsBox.innerHTML = '<div>Tidak ditemukan</div>'; resultsBox.style.display='block'; return; }
+    resultsBox.innerHTML = matches.map((e,i)=>`<div data-idx="${i}">${e.nama} — ${e.nip||'tanpa NIP'} <span style="color:var(--ink-soft)">(${e.jabatan||'-'})</span></div>`).join('');
+    resultsBox.style.display = 'block';
+    resultsBox.querySelectorAll('div[data-idx]').forEach(div=>{
+      div.addEventListener('click', ()=>{
+        const emp = matches[parseInt(div.dataset.idx,10)];
+        state.selectedEmployee[cat.key] = emp;
+        document.getElementById(`selected_${cat.key}`).textContent = `Terpilih: ${emp.nama} (${emp.nip||'-'})`;
+        searchInput.value = emp.nama;
+        resultsBox.style.display = 'none';
+      });
+    });
+  });
+  document.addEventListener('click', (e)=>{
+    if(!e.target.closest(`#pegawaiPicker_${cat.key}`)) resultsBox.style.display='none';
+  });
+
+  document.querySelector(`[data-save="${cat.key}"]`).addEventListener('click', ()=> saveRecord(cat));
+  document.querySelector(`[data-reset="${cat.key}"]`).addEventListener('click', ()=> resetCategoryForm(cat));
+}
+
+function resetCategoryForm(cat){
+  document.getElementById(`manual_${cat.key}`).checked = false;
+  document.getElementById(`pegawaiPicker_${cat.key}`).style.display = 'block';
+  document.getElementById(`manualFields_${cat.key}`).style.display = 'none';
+  document.getElementById(`search_${cat.key}`).value = '';
+  document.getElementById(`selected_${cat.key}`).textContent = '';
+  ['manualNama','manualNip','manualJabatan','manualUnit'].forEach(p=> document.getElementById(`${p}_${cat.key}`).value='');
+  cat.fields.forEach(f=> document.getElementById(`f_${cat.key}_${f.id}`).value = '');
+  document.getElementById(`catatan_${cat.key}`).value = '';
+  state.selectedEmployee[cat.key] = null;
+  document.getElementById(`formBanner_${cat.key}`).innerHTML = '';
+}
+
+function saveRecord(cat){
+  const isManual = document.getElementById(`manual_${cat.key}`).checked;
+  let nama, nip, jabatan, unit, sumber;
+  if(isManual){
+    nama = document.getElementById(`manualNama_${cat.key}`).value.trim();
+    nip = document.getElementById(`manualNip_${cat.key}`).value.trim();
+    jabatan = document.getElementById(`manualJabatan_${cat.key}`).value.trim();
+    unit = document.getElementById(`manualUnit_${cat.key}`).value.trim();
+    sumber = 'Manual';
+  } else {
+    const emp = state.selectedEmployee[cat.key];
+    if(!emp){ showBanner(`formBanner_${cat.key}`,'warn','Pilih pegawai terlebih dahulu, atau centang input manual.'); return; }
+    nama = emp.nama; nip = emp.nip; jabatan = emp.jabatan; unit = emp.unit;
+    sumber = 'Data Pegawai';
+  }
+  if(!nama){ showBanner(`formBanner_${cat.key}`,'warn','Nama wajib diisi.'); return; }
+
+  const detail = {};
+  cat.fields.forEach(f=> detail[f.id] = document.getElementById(`f_${cat.key}_${f.id}`).value);
+
+  const record = {
+    id: genId(),
+    kategoriKey: cat.key,
+    kategoriLabel: cat.label,
+    sumber, nama, nip, jabatan, unit,
+    detail,
+    catatan: document.getElementById(`catatan_${cat.key}`).value.trim(),
+    tanggalInput: new Date().toISOString(),
+    synced: false,
+  };
+  state.records.push(record);
+  Store.set('records', state.records);
+  showBanner(`formBanner_${cat.key}`,'ok', `Data ${cat.label} untuk ${nama} berhasil disimpan.`);
+  resetCategoryForm(cat);
+}
+
+/* =========================================================
+   PANEL: REKAP & EKSPOR
+   ========================================================= */
+function panelRekapHTML(){
+  return `
+  <section class="panel" id="panel-rekap">
+    <div class="card">
+      <h2>Rekap Data</h2>
+      <p class="hint">Semua data yang telah diinput akan tampil di sini. Gunakan filter untuk melihat per kategori, lalu ekspor atau simpan ke Google Sheets.</p>
+      <div class="summary-cards" id="summaryCards"></div>
+      <div class="filters-row">
+        <div class="field">
+          <label>Kategori</label>
+          <select id="filterKategori">
+            <option value="">Semua Kategori</option>
+            ${CATEGORIES.map(c=>`<option value="${c.key}">${c.label}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <label>Cari Nama / NIP</label>
+          <input type="text" id="filterSearch" placeholder="Ketik untuk mencari...">
+        </div>
+        <div class="field">
+          <label>Status Simpan</label>
+          <select id="filterSynced">
+            <option value="">Semua</option>
+            <option value="0">Belum ke Google Sheets</option>
+            <option value="1">Sudah ke Google Sheets</option>
+          </select>
+        </div>
+      </div>
+      <div class="preview-wrap"><table class="data-table" id="recordsTable"></table></div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSyncSheets">Simpan ke Google Sheets</button>
+        <button class="btn secondary" id="btnExportExcel">Ekspor ke Excel</button>
+      </div>
+      <div id="rekapBanner"></div>
+    </div>
+  </section>`;
+}
+
+function currentFilteredRecords(){
+  const kategori = document.getElementById('filterKategori').value;
+  const q = document.getElementById('filterSearch').value.trim().toLowerCase();
+  const syncedFilter = document.getElementById('filterSynced').value;
+  return state.records.filter(r=>{
+    if(kategori && r.kategoriKey !== kategori) return false;
+    if(q && !(r.nama.toLowerCase().includes(q) || (r.nip||'').toLowerCase().includes(q))) return false;
+    if(syncedFilter === '0' && r.synced) return false;
+    if(syncedFilter === '1' && !r.synced) return false;
+    return true;
+  });
+}
+
+function renderRekap(){
+  const summaryEl = document.getElementById('summaryCards');
+  summaryEl.innerHTML = CATEGORIES.map(c=>{
+    const n = state.records.filter(r=>r.kategoriKey===c.key).length;
+    return `<div class="summary-card"><div class="num">${n}</div><div class="lbl">${c.label}</div></div>`;
+  }).join('');
+  renderRecordsTable();
+}
+
+function ringkasanDetail(r){
+  const cat = CATEGORIES.find(c=>c.key===r.kategoriKey);
+  return cat.fields.slice(0,3).map(f=> r.detail[f.id] ? `${f.label}: ${r.detail[f.id]}` : null).filter(Boolean).join(' · ');
+}
+
+function renderRecordsTable(){
+  const list = currentFilteredRecords();
+  const table = document.getElementById('recordsTable');
+  if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Belum ada data yang cocok dengan filter.</td></tr>'; return; }
+  table.innerHTML = '<tr><th>Kategori</th><th>Nama</th><th>NIP/Ket.</th><th>Jabatan/Unit</th><th>Ringkasan</th><th>Tgl Input</th><th>Status</th><th>Aksi</th></tr>' +
+    list.slice().reverse().map(r=>`
+      <tr>
+        <td>${r.kategoriLabel}</td>
+        <td>${r.nama}</td>
+        <td>${r.nip||'-'}</td>
+        <td>${r.jabatan||'-'}${r.unit? ' / '+r.unit:''}</td>
+        <td>${ringkasanDetail(r)}</td>
+        <td>${new Date(r.tanggalInput).toLocaleDateString('id-ID')}</td>
+        <td><span class="badge ${r.synced?'synced':'unsynced'}">${r.synced?'Tersimpan':'Belum'}</span></td>
+        <td><button class="btn danger" data-del="${r.id}" style="padding:4px 8px;font-size:12px;">Hapus</button></td>
+      </tr>`).join('');
+
+  table.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      if(!confirm('Hapus data ini?')) return;
+      state.records = state.records.filter(r=> r.id !== btn.dataset.del);
+      Store.set('records', state.records);
+      renderRekap();
+    });
+  });
+}
+
+function exportToExcel(){
+  const list = currentFilteredRecords();
+  if(!list.length){ showBanner('rekapBanner','warn','Tidak ada data untuk diekspor.'); return; }
+  const wb = XLSX.utils.book_new();
+  CATEGORIES.forEach(cat=>{
+    const rows = list.filter(r=>r.kategoriKey===cat.key);
+    if(!rows.length) return;
+    const header = ['Sumber','NIP/Keterangan','Nama','Jabatan','Unit Kerja', ...cat.fields.map(f=>f.label), 'Catatan','Tanggal Input'];
+    const aoa = [header, ...rows.map(r=> [
+      r.sumber, r.nip||'', r.nama, r.jabatan||'', r.unit||'',
+      ...cat.fields.map(f=> r.detail[f.id]||''),
+      r.catatan||'', new Date(r.tanggalInput).toLocaleString('id-ID')
+    ])];
+    const ws = XLSX.utils.aoa_to_sheet(aoa);
+    XLSX.utils.book_append_sheet(wb, ws, cat.sheet.slice(0,31));
+  });
+  const filename = `Data_Kepegawaian_${new Date().toISOString().slice(0,10)}.xlsx`;
+  XLSX.writeFile(wb, filename);
+  showBanner('rekapBanner','ok', `Berhasil diekspor sebagai ${filename}.`);
+}
+
+async function syncToSheets(){
+  const list = state.records.filter(r=> !r.synced);
+  if(!list.length){ showBanner('rekapBanner','info','Semua data sudah tersimpan ke Google Sheets.'); return; }
+  const url = state.settings.webAppUrl;
+  if(!url){ showBanner('rekapBanner','warn','Atur URL Web App Google Apps Script di tab Pengaturan terlebih dahulu.'); return; }
+  showBanner('rekapBanner','info', `Menyimpan ${list.length} data ke Google Sheets...`);
+  try{
+    const res = await fetch(url, {
+      method:'POST',
+      headers: { 'Content-Type':'text/plain;charset=utf-8' }, // hindari preflight CORS pada Apps Script
+      body: JSON.stringify({ records: list.map(r=>({
+        id:r.id, kategoriKey:r.kategoriKey, kategoriLabel:r.kategoriLabel, sheet: CATEGORIES.find(c=>c.key===r.kategoriKey).sheet,
+        sumber:r.sumber, nip:r.nip, nama:r.nama, jabatan:r.jabatan, unit:r.unit,
+        detail:r.detail, catatan:r.catatan, tanggalInput:r.tanggalInput
+      })) })
+    });
+    const json = await res.json();
+    if(json.error){ showBanner('rekapBanner','warn','Gagal: ' + json.error); return; }
+    const savedIds = new Set(json.saved || []);
+    state.records.forEach(r=>{ if(savedIds.has(r.id)) r.synced = true; });
+    Store.set('records', state.records);
+    renderRekap();
+    showBanner('rekapBanner','ok', `${savedIds.size} data berhasil disimpan ke Google Sheets.`);
+  }catch(err){
+    showBanner('rekapBanner','warn','Gagal terhubung ke Web App. Detail: ' + err.message);
+  }
+}
+
+/* =========================================================
+   PANEL: PENGATURAN
+   ========================================================= */
+function panelPengaturanHTML(){
+  return `
+  <section class="panel" id="panel-pengaturan">
+    <div class="card">
+      <h2>Pengaturan Koneksi</h2>
+      <p class="hint">Aplikasi ini membutuhkan satu Google Apps Script Web App yang terhubung ke spreadsheet tujuan agar bisa membaca data pegawai dan menyimpan data izin/kegiatan. Lihat panduan pemasangan pada berkas <code class="inline">Code.gs</code> dan <code class="inline">PANDUAN-SETUP.md</code> yang disertakan.</p>
+      <div class="field-grid">
+        <div class="field full">
+          <label>URL Web App (Google Apps Script)</label>
+          <input type="url" id="inpWebAppUrl" placeholder="https://script.google.com/macros/s/xxxx/exec">
+        </div>
+        <div class="field full">
+          <label>Spreadsheet Tujuan</label>
+          <input type="text" value="1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols" readonly>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn accent" id="btnSaveSettings">Simpan Pengaturan</button>
+        <button class="btn secondary" id="btnTestConn">Uji Koneksi</button>
+      </div>
+      <div id="settingsBanner"></div>
+    </div>
+    <div class="card">
+      <h2>Tentang Penyimpanan</h2>
+      <p class="hint">${HAS_STORAGE
+        ? 'Data disimpan otomatis pada penyimpanan aplikasi ini sehingga tetap ada saat Anda membuka kembali percakapan ini.'
+        : 'Penyimpanan permanen tidak terdeteksi pada lingkungan ini — data hanya bertahan selama halaman terbuka. Simpan pekerjaan Anda secara berkala lewat tombol Ekspor Excel atau Simpan ke Google Sheets.'}</p>
+    </div>
+  </section>`;
+}
+
+/* =========================================================
+   INISIALISASI HALAMAN
+   ========================================================= */
+async function init(){
+  buildNav();
+  mainArea.innerHTML =
+    panelSumberHTML() +
+    CATEGORIES.map(panelCategoryHTML).join('') +
+    panelRekapHTML() +
+    panelPengaturanHTML();
+
+  state.employees = await Store.get('employees', []);
+  state.records = await Store.get('records', []);
+  state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Pegawai' });
+
+  document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
+  document.getElementById('inpSheetPegawai').value = state.settings.sheetPegawai || 'Pegawai';
+  renderEmployeeSummary();
+
+  document.getElementById('btnFetchPegawai').addEventListener('click', fetchPegawaiFromGoogle);
+  document.getElementById('inpFileExcel').addEventListener('change', (e)=>{
+    if(e.target.files[0]) handleExcelFile(e.target.files[0]);
+  });
+  document.getElementById('btnUseMapping').addEventListener('click', confirmMapping);
+  document.getElementById('btnCancelMapping').addEventListener('click', ()=>{
+    document.getElementById('mappingCard').style.display='none';
+    state.rawImport = null;
+  });
+  document.getElementById('testSearchEmployee').addEventListener('input', (e)=>{
+    const q = e.target.value.trim().toLowerCase();
+    const list = q ? state.employees.filter(x=> x.nama.toLowerCase().includes(q) || (x.nip||'').toLowerCase().includes(q)) : state.employees.slice(0,50);
+    renderEmployeeTable(list.slice(0,50));
+  });
+
+  CATEGORIES.forEach(cat=>{
+    state.selectedEmployee[cat.key] = null;
+    wireCategoryPanel(cat);
+  });
+
+  document.getElementById('filterKategori').addEventListener('change', renderRecordsTable);
+  document.getElementById('filterSearch').addEventListener('input', renderRecordsTable);
+  document.getElementById('filterSynced').addEventListener('change', renderRecordsTable);
+  document.getElementById('btnExportExcel').addEventListener('click', exportToExcel);
+  document.getElementById('btnSyncSheets').addEventListener('click', syncToSheets);
+
+  document.getElementById('btnSaveSettings').addEventListener('click', ()=>{
+    state.settings = {
+      webAppUrl: document.getElementById('inpWebAppUrl').value.trim(),
+      sheetPegawai: document.getElementById('inpSheetPegawai') ? document.getElementById('inpSheetPegawai').value.trim() : 'Pegawai'
+    };
+    Store.set('settings', state.settings);
+    showBanner('settingsBanner','ok','Pengaturan tersimpan.');
+  });
+  document.getElementById('btnTestConn').addEventListener('click', async ()=>{
+    const url = state.settings.webAppUrl || document.getElementById('inpWebAppUrl').value.trim();
+    if(!url){ showBanner('settingsBanner','warn','Isi URL Web App terlebih dahulu.'); return; }
+    showBanner('settingsBanner','info','Menguji koneksi...');
+    try{
+      const res = await fetch(`${url}?action=getPegawai&sheet=${encodeURIComponent(state.settings.sheetPegawai||'Pegawai')}`);
+      const json = await res.json();
+      if(json.error) showBanner('settingsBanner','warn','Terhubung, tetapi Apps Script mengembalikan error: ' + json.error);
+      else showBanner('settingsBanner','ok','Koneksi berhasil! Web App merespons dengan baik.');
+    }catch(err){
+      showBanner('settingsBanner','warn','Koneksi gagal: ' + err.message);
+    }
+  });
+
+  showTab('sumber');
+}
+
+init();
+</script>
+</body>
+</html>
