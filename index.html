@@ -284,7 +284,10 @@
     <h1>Administrasi Kepegawaian</h1>
     <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
   </div>
-  <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Buka Spreadsheet Tujuan &#8599;</a>
+  <div style="display:flex;gap:8px;flex-wrap:wrap;">
+    <a class="sheet-link" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">Sumber Data Pegawai &#8599;</a>
+    <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
+  </div>
 </header>
 
 <div class="layout">
@@ -907,14 +910,18 @@ function panelPengaturanHTML(){
   <section class="panel" id="panel-pengaturan">
     <div class="card">
       <h2>Pengaturan Koneksi</h2>
-      <p class="hint">Aplikasi ini membutuhkan satu Google Apps Script Web App yang terhubung ke spreadsheet tujuan agar bisa membaca data pegawai dan menyimpan data izin/kegiatan. Lihat panduan pemasangan pada berkas <code class="inline">Code.gs</code> dan <code class="inline">PANDUAN-SETUP.md</code> yang disertakan.</p>
+      <p class="hint">Aplikasi ini membutuhkan satu Google Apps Script Web App yang bisa mengakses <strong>dua spreadsheet berbeda</strong>: sumber data pegawai (dibaca) dan spreadsheet tujuan (ditulis). Lihat panduan pemasangan pada berkas <code class="inline">Code.gs</code> dan <code class="inline">PANDUAN-SETUP.md</code> yang disertakan.</p>
       <div class="field-grid">
         <div class="field full">
           <label>URL Web App (Google Apps Script)</label>
           <input type="url" id="inpWebAppUrl" placeholder="https://script.google.com/macros/s/xxxx/exec">
         </div>
-        <div class="field full">
-          <label>Spreadsheet Tujuan</label>
+        <div class="field">
+          <label>Sumber Data Pegawai (hanya dibaca)</label>
+          <input type="text" value="1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y — data mysimkari" readonly>
+        </div>
+        <div class="field">
+          <label>Spreadsheet Tujuan (tempat data disimpan)</label>
           <input type="text" value="1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols" readonly>
         </div>
       </div>
