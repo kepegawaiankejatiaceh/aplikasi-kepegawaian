@@ -342,26 +342,28 @@ const CATEGORIES = [
     { id:'sudahDipotong', label:'Sudah Dipotong', type:'text' },
   ]},
   { key:'pernikahan', label:'Izin Pernikahan', sheet:'Izin Pernikahan', fields:[
-    { id:'tglNikah', label:'Tanggal Pernikahan', type:'date' },
-    { id:'namaPasangan', label:'Nama Pasangan', type:'text' },
-    { id:'tglMulai', label:'Tanggal Mulai Cuti', type:'date' },
-    { id:'tglSelesai', label:'Tanggal Selesai Cuti', type:'date' },
-    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
+    { id:'tglPengajuanPegawai', label:'Tanggal Pengajuan Pegawai', type:'date' },
+    { id:'tglPersetujuanPimpinan', label:'Tanggal Persetujuan Pimpinan', type:'date' },
+    { id:'nomorSurat', label:'Nomor Surat', type:'text' },
+    { id:'statusKep', label:'Status KEP Kejagung', type:'select', options:['Disetujui','Ditolak'] },
+    { id:'nomorKep', label:'Nomor KEP', type:'text' },
+    { id:'tanggalKep', label:'Tanggal KEP', type:'date' },
   ]},
   { key:'perceraian', label:'Izin Perceraian', sheet:'Izin Perceraian', fields:[
-    { id:'tglPengajuan', label:'Tanggal Pengajuan', type:'date' },
-    { id:'alasan', label:'Alasan', type:'text' },
-    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
-    { id:'status', label:'Status', type:'select', options:['Diajukan','Disetujui','Ditolak'] },
-    { id:'nomorPutusan', label:'Nomor Putusan Pengadilan', type:'text' },
+    { id:'tglPengajuanPegawai', label:'Tanggal Pengajuan Pegawai', type:'date' },
+    { id:'tglPersetujuanPimpinan', label:'Tanggal Persetujuan Pimpinan', type:'date' },
+    { id:'nomorSurat', label:'Nomor Surat', type:'text' },
+    { id:'statusKep', label:'Status KEP Kejagung', type:'select', options:['Disetujui','Ditolak'] },
+    { id:'nomorKep', label:'Nomor KEP', type:'text' },
+    { id:'tanggalKep', label:'Tanggal KEP', type:'date' },
   ]},
   { key:'keluarnegeri', label:'Izin Keluar Negeri', sheet:'Izin Keluar Negeri', fields:[
-    { id:'negaraTujuan', label:'Negara Tujuan', type:'text' },
-    { id:'keperluan', label:'Keperluan', type:'select', options:['Dinas','Pribadi / Cuti'] },
-    { id:'tglBerangkat', label:'Tanggal Berangkat', type:'date' },
-    { id:'tglKembali', label:'Tanggal Kembali', type:'date' },
-    { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
-    { id:'sumberBiaya', label:'Sumber Biaya', type:'text' },
+    { id:'tglPengajuanPegawai', label:'Tanggal Pengajuan Pegawai', type:'date' },
+    { id:'tglPersetujuanPimpinan', label:'Tanggal Persetujuan Pimpinan', type:'date' },
+    { id:'nomorSurat', label:'Nomor Surat', type:'text' },
+    { id:'statusKep', label:'Status KEP Kejagung', type:'select', options:['Disetujui','Ditolak'] },
+    { id:'nomorKep', label:'Nomor KEP', type:'text' },
+    { id:'tanggalKep', label:'Tanggal KEP', type:'date' },
   ]},
   { key:'diklat', label:'Diklat', sheet:'Diklat', fields:[
     { id:'namaDiklat', label:'Nama Diklat', type:'text' },
@@ -727,6 +729,12 @@ function rerenderVisibleData(){
     if(key === 'rekap') renderRekapCutiAll();
     if(key === 'pengaturan'){ renderBidangTable(); renderSisaCutiTable(); }
   }
+  const simpleKey = tab.startsWith('cat:') ? tab.slice(4) : null;
+  if(simpleKey && MONTHLY_RECAP_KEYS.includes(simpleKey)){
+    const activeSub = document.querySelector(`#subTabs_${simpleKey} button.active`);
+    const key = activeSub ? activeSub.dataset.key : 'permohonan';
+    if(key === 'rekap') renderMonthlyRekap({ key: simpleKey }, true);
+  }
 }
 
 async function fetchPegawaiFromGoogle(){
@@ -825,11 +833,10 @@ function fieldHTML(catKey, f){
   return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"></div>`;
 }
 
-function panelCategoryHTML(cat){
+const MONTHLY_RECAP_KEYS = ['pernikahan','perceraian','keluarnegeri'];
+
+function categoryFormBodyHTML(cat){
   return `
-  <section class="panel" id="panel-cat-${cat.key}">
-    <div class="card">
-      <h2>${cat.label}</h2>
       <p class="hint">Pilih pegawai dari data yang telah dimuat, atau isi manual untuk pegawai lama / peserta magang / pihak non-pegawai.</p>
 
       <div class="toggle-row">
@@ -868,7 +875,46 @@ function panelCategoryHTML(cat){
         <button class="btn accent" data-save="${cat.key}">Simpan Data</button>
         <button class="btn secondary" data-reset="${cat.key}">Bersihkan Form</button>
       </div>
-      <div id="formBanner_${cat.key}"></div>
+      <div id="formBanner_${cat.key}"></div>`;
+}
+
+function panelCategoryHTML(cat){
+  return `
+  <section class="panel" id="panel-cat-${cat.key}">
+    <div class="card">
+      <h2>${cat.label}</h2>
+      ${categoryFormBodyHTML(cat)}
+    </div>
+  </section>`;
+}
+
+/** Untuk kategori dengan sub-menu Permohonan & Rekap (per bulan): Izin Pernikahan,
+ *  Izin Perceraian, Izin Keluar Negeri. Periode rekap mengacu pada Tanggal
+ *  Persetujuan Pimpinan. */
+function panelCategoryWithMonthlyRekapHTML(cat){
+  return `
+  <section class="panel" id="panel-cat-${cat.key}">
+    <div class="card">
+      <h2>${cat.label}</h2>
+      <div class="subtabs" id="subTabs_${cat.key}">
+        <button data-key="permohonan" class="active">Permohonan</button>
+        <button data-key="rekap">Rekap</button>
+      </div>
+
+      <div id="sub-${cat.key}-permohonan">
+        ${categoryFormBodyHTML(cat)}
+      </div>
+
+      <div id="sub-${cat.key}-rekap" style="display:none;">
+        <p class="hint">Rekapitulasi dikelompokkan berdasarkan bulan Tanggal Persetujuan Pimpinan.</p>
+        <div class="filters-row">
+          <div class="field">
+            <label>Bulan</label>
+            <select id="filterBulan_${cat.key}"><option value="">Semua Bulan</option></select>
+          </div>
+        </div>
+        <div class="preview-wrap"><table class="data-table" id="rekapTable_${cat.key}"></table></div>
+      </div>
     </div>
   </section>`;
 }
@@ -967,6 +1013,55 @@ async function saveRecord(cat){
   await fetchAllRecordsFromSheets();
   showBanner(`formBanner_${cat.key}`,'ok', `Data ${cat.label} untuk ${nama} berhasil disimpan.`);
   resetCategoryForm(cat);
+  if(MONTHLY_RECAP_KEYS.includes(cat.key)) renderMonthlyRekap(cat, true);
+}
+
+/* =========================================================
+   REKAP PER BULAN (Izin Pernikahan, Izin Perceraian, Izin Keluar Negeri)
+   Periode rekap mengacu pada Tanggal Persetujuan Pimpinan.
+   ========================================================= */
+const BULAN_NAMES = ['Januari','Februari','Maret','April','Mei','Juni','Juli','Agustus','September','Oktober','November','Desember'];
+
+function monthKeyFromDate(dateStr){
+  if(!dateStr) return null;
+  const d = new Date(dateStr);
+  if(isNaN(d.getTime())) return null;
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`;
+}
+function monthLabelFromKey(monthKey){
+  const [y,m] = monthKey.split('-');
+  return `${BULAN_NAMES[parseInt(m,10)-1]} ${y}`;
+}
+
+function wireMonthlyRekap(cat){
+  wireSimpleSubtabs(`subTabs_${cat.key}`, {
+    permohonan: `sub-${cat.key}-permohonan`,
+    rekap: `sub-${cat.key}-rekap`,
+  }, (key)=>{ if(key==='rekap') renderMonthlyRekap(cat, true); });
+
+  document.getElementById(`filterBulan_${cat.key}`).addEventListener('change', ()=> renderMonthlyRekap(cat, false));
+}
+
+function renderMonthlyRekap(cat, rebuildOptions){
+  const records = state.records.filter(r=> r.kategoriKey === cat.key);
+  const select = document.getElementById(`filterBulan_${cat.key}`);
+  if(!select) return;
+  if(rebuildOptions){
+    const months = Array.from(new Set(records.map(r=> monthKeyFromDate(r.detail.tglPersetujuanPimpinan)).filter(Boolean))).sort().reverse();
+    const current = select.value;
+    select.innerHTML = '<option value="">Semua Bulan</option>' + months.map(m=>`<option value="${m}" ${m===current?'selected':''}>${monthLabelFromKey(m)}</option>`).join('');
+  }
+  const filterMonth = select.value;
+  const list = records.filter(r=> !filterMonth || monthKeyFromDate(r.detail.tglPersetujuanPimpinan) === filterMonth);
+  const table = document.getElementById(`rekapTable_${cat.key}`);
+  if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data pada periode ini.</td></tr>'; return; }
+  table.innerHTML = '<tr><th>Nama</th><th>NIP/Ket.</th><th>Tgl Pengajuan Pegawai</th><th>Tgl Persetujuan Pimpinan</th><th>Nomor Surat</th><th>Status KEP</th><th>Nomor KEP</th><th>Tanggal KEP</th></tr>' +
+    list.slice().sort((a,b)=> (b.detail.tglPersetujuanPimpinan||'').localeCompare(a.detail.tglPersetujuanPimpinan||'')).map(r=>`<tr>
+      <td>${r.nama}</td><td>${r.nip||'-'}</td>
+      <td>${r.detail.tglPengajuanPegawai||'-'}</td><td>${r.detail.tglPersetujuanPimpinan||'-'}</td>
+      <td>${r.detail.nomorSurat||'-'}</td><td>${r.detail.statusKep||'-'}</td>
+      <td>${r.detail.nomorKep||'-'}</td><td>${r.detail.tanggalKep||'-'}</td>
+    </tr>`).join('');
 }
 
 /* =========================================================
@@ -1852,7 +1947,8 @@ async function init(){
   buildNav();
   mainArea.innerHTML =
     panelSumberHTML() +
-    CATEGORIES.filter(c=>c.key!=='cuti').map(panelCategoryHTML).join('') +
+    CATEGORIES.filter(c=> c.key!=='cuti' && !MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryHTML).join('') +
+    CATEGORIES.filter(c=> MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryWithMonthlyRekapHTML).join('') +
     panelCutiHTML() +
     panelRekapHTML() +
     panelPengaturanHTML();
@@ -1885,6 +1981,7 @@ async function init(){
   CATEGORIES.filter(c=>c.key!=='cuti').forEach(cat=>{
     state.selectedEmployee[cat.key] = null;
     wireCategoryPanel(cat);
+    if(MONTHLY_RECAP_KEYS.includes(cat.key)) wireMonthlyRekap(cat);
   });
   wireCutiPanel();
 
