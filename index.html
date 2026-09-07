@@ -470,9 +470,9 @@ const CATEGORIES = [
     { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
     { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
     { id:'jumlahHari', label:'Jumlah Hari', type:'number' },
-    { id:'alasan', label:'Alasan / Keperluan', type:'text' },
+    { id:'alasan', label:'Alasan / Keperluan', type:'text', suggest:true },
     { id:'nomorSurat', label:'Nomor Surat Izin', type:'text' },
-    { id:'pejabat', label:'Pejabat Pemberi Izin', type:'text' },
+    { id:'pejabat', label:'Pejabat Pemberi Izin', type:'text', suggest:true },
     { id:'bidang', label:'Bidang', type:'text' },
     { id:'tahunBerjalan', label:'Potong Tahun Berjalan', type:'text' },
     { id:'tahunLalu', label:'Potong 1 Tahun Sebelumnya', type:'text' },
@@ -522,7 +522,7 @@ const CATEGORIES = [
     { id:'unitPenempatan', label:'Unit Penempatan', type:'text', suggest:true },
     { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
     { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
-    { id:'pembimbing', label:'Pembimbing / Mentor', type:'text' },
+    { id:'pembimbing', label:'Pembimbing / Mentor', type:'text', suggest:true },
   ]},
   { key:'ujikom', label:'Ujian Kompetensi', sheet:'Ujian Kompetensi', fields:[
     { id:'jenisUjian', label:'Jenis Ujian', type:'select', options:['Uji Kompetensi Jabatan','Assessment Manajerial','Uji Kompetensi Teknis','Lainnya'] },
@@ -540,8 +540,8 @@ const CATEGORIES = [
   ]},
   { key:'disiplin', label:'Hukuman Disiplin', sheet:'Hukuman Disiplin', fields:[
     { id:'tingkat', label:'Tingkat Hukuman', type:'select', options:['Ringan','Sedang','Berat'] },
-    { id:'jenisHukuman', label:'Jenis Hukuman', type:'text' },
-    { id:'pelanggaran', label:'Bentuk Pelanggaran', type:'text' },
+    { id:'jenisHukuman', label:'Jenis Hukuman', type:'text', suggest:true },
+    { id:'pelanggaran', label:'Bentuk Pelanggaran', type:'text', suggest:true },
     { id:'nomorSk', label:'Nomor SK', type:'text' },
     { id:'tglSk', label:'Tanggal SK', type:'date' },
     { id:'pejabatPenetap', label:'Pejabat Penetap', type:'text', suggest:true },
@@ -817,6 +817,7 @@ async function fetchAllRecordsFromSheets(){
     state.records = json.records || [];
     Store.set('records', state.records);
     populateSuggestionDatalists();
+    populateManualSuggestionDatalists();
     return true;
   }catch(err){ return false; }
 }
@@ -989,7 +990,7 @@ function fieldHTML(catKey, f){
   return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"></div>`;
 }
 
-const SUGGESTION_FIELD_IDS = ['asalInstansi','namaDiklat','penyelenggara','tempat','unitPenempatan','pejabatPenetap'];
+const SUGGESTION_FIELD_IDS = ['asalInstansi','namaDiklat','penyelenggara','tempat','unitPenempatan','pejabatPenetap','pejabat','alasan','pembimbing','jenisHukuman','pelanggaran'];
 function populateSuggestionDatalists(){
   SUGGESTION_FIELD_IDS.forEach(fid=>{
     const dl = document.getElementById(`dl_${fid}`);
@@ -1001,7 +1002,54 @@ function populateSuggestionDatalists(){
   });
 }
 
+/** Saran ketik-otomatis untuk kolom input manual (Nama, NIP/Keterangan, Jabatan,
+ *  Unit Kerja) yang muncul identik di setiap kategori. Nilainya dikumpulkan dari
+ *  SEMUA kategori sekaligus (top-level nama/nip/jabatan/unit tiap data), lalu
+ *  diterapkan ke datalist milik setiap kategori (id-nya diberi akhiran per kategori
+ *  supaya tidak bentrok, tapi isinya sama/dibagi bersama). */
+const MANUAL_SUGGESTION_KEYS = ['manualNama','manualNip','manualJabatan','manualUnit'];
+function populateManualSuggestionDatalists(){
+  const pools = {
+    manualNama: new Set(), manualNip: new Set(), manualJabatan: new Set(), manualUnit: new Set(),
+  };
+  state.records.forEach(r=>{
+    if(r.nama) pools.manualNama.add(r.nama);
+    if(r.nip) pools.manualNip.add(r.nip);
+    if(r.jabatan) pools.manualJabatan.add(r.jabatan);
+    if(r.unit) pools.manualUnit.add(r.unit);
+  });
+  const allCatKeys = CATEGORIES.map(c=> c.key);
+  MANUAL_SUGGESTION_KEYS.forEach(key=>{
+    const options = Array.from(pools[key]).sort((a,b)=> String(a).localeCompare(String(b)))
+      .map(v=>`<option value="${String(v).replace(/"/g,'&quot;')}"></option>`).join('');
+    allCatKeys.forEach(catKey=>{
+      const dl = document.getElementById(`dl_${key}_${catKey}`);
+      if(dl) dl.innerHTML = options;
+    });
+  });
+}
+
 const MONTHLY_RECAP_KEYS = ['pernikahan','perceraian','keluarnegeri'];
+
+function manualFieldsHTML(catKey){
+  return `
+          <div class="field"><label>Nama</label>
+            <input type="text" id="manualNama_${catKey}" list="dl_manualNama_${catKey}" autocomplete="off">
+            <datalist id="dl_manualNama_${catKey}"></datalist>
+          </div>
+          <div class="field"><label>NIP / Keterangan (mis. Alumni / Peserta Magang)</label>
+            <input type="text" id="manualNip_${catKey}" list="dl_manualNip_${catKey}" autocomplete="off">
+            <datalist id="dl_manualNip_${catKey}"></datalist>
+          </div>
+          <div class="field"><label>Jabatan / Asal Instansi</label>
+            <input type="text" id="manualJabatan_${catKey}" list="dl_manualJabatan_${catKey}" autocomplete="off">
+            <datalist id="dl_manualJabatan_${catKey}"></datalist>
+          </div>
+          <div class="field"><label>Unit Kerja / Sekolah-Universitas</label>
+            <input type="text" id="manualUnit_${catKey}" list="dl_manualUnit_${catKey}" autocomplete="off">
+            <datalist id="dl_manualUnit_${catKey}"></datalist>
+          </div>`;
+}
 
 function categoryFormBodyHTML(cat){
   return `
@@ -1025,10 +1073,7 @@ function categoryFormBodyHTML(cat){
 
       <div id="manualFields_${cat.key}" style="display:none;">
         <div class="field-grid">
-          <div class="field"><label>Nama</label><input type="text" id="manualNama_${cat.key}"></div>
-          <div class="field"><label>NIP / Keterangan (mis. Alumni / Peserta Magang)</label><input type="text" id="manualNip_${cat.key}"></div>
-          <div class="field"><label>Jabatan / Asal Instansi</label><input type="text" id="manualJabatan_${cat.key}"></div>
-          <div class="field"><label>Unit Kerja / Sekolah-Universitas</label><input type="text" id="manualUnit_${cat.key}"></div>
+          ${manualFieldsHTML(cat.key)}
         </div>
       </div>
 
@@ -1291,10 +1336,7 @@ function panelCutiHTML(){
 
         <div id="manualFields_cuti" style="display:none;">
           <div class="field-grid">
-            <div class="field"><label>Nama</label><input type="text" id="manualNama_cuti"></div>
-            <div class="field"><label>NIP / Keterangan</label><input type="text" id="manualNip_cuti"></div>
-            <div class="field"><label>Jabatan / Asal Instansi</label><input type="text" id="manualJabatan_cuti"></div>
-            <div class="field"><label>Unit Kerja</label><input type="text" id="manualUnit_cuti"></div>
+            ${manualFieldsHTML('cuti')}
             <div class="field full">
               <label>Bidang</label>
               <select id="bidangManual_cuti">
@@ -2259,6 +2301,7 @@ async function init(){
   state.employees = await Store.get('employees', []);
   state.records = await Store.get('records', []);
   populateSuggestionDatalists();
+  populateManualSuggestionDatalists();
   state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Sheet1' });
   state.bidangList = await Store.get('bidangList', []);
   state.sisaCutiList = await Store.get('sisaCutiList', []);
