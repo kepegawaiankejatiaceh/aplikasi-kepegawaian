@@ -821,6 +821,31 @@ async function fetchAllRecordsFromSheets(){
     return true;
   }catch(err){ return false; }
 }
+/** Menyamakan berbagai variasi penulisan Bidang (huruf besar/kecil, singkatan,
+ *  dari file Excel atau ketikan manual di spreadsheet) ke salah satu dari 10
+ *  pilihan Bidang baku pada aplikasi. Jika tidak dikenali, teks asli dipakai
+ *  apa adanya (supaya tidak menghilangkan data). */
+function normalizeBidang(raw){
+  if(!raw) return '';
+  const s = String(raw).trim().toLowerCase();
+  const exact = BIDANG_OPTIONS.find(o=> o.toLowerCase() === s);
+  if(exact) return exact;
+  const rules = [
+    { keys:['eselon'], value:'Eselon II dan III' },
+    { keys:['pembinaan'], value:'Pembinaan' },
+    { keys:['intel'], value:'Intel' },
+    { keys:['pidsus'], value:'Pidsus' },
+    { keys:['pidum'], value:'Pidum' },
+    { keys:['datun'], value:'Datun' },
+    { keys:['pidmil'], value:'Pidmil' },
+    { keys:['aset','asset'], value:'Aset' },
+    { keys:['pengawasan'], value:'Pengawasan' },
+    { keys:['tata usaha'], value:'Tata Usaha' },
+  ];
+  const found = rules.find(r=> r.keys.some(k=> s.includes(k)));
+  return found ? found.value : String(raw).trim();
+}
+
 async function fetchBidangFromSheets(){
   const url = state.settings.webAppUrl;
   if(!url) return false;
@@ -828,8 +853,15 @@ async function fetchBidangFromSheets(){
     const res = await fetch(`${url}?action=getBidang`);
     const json = await res.json();
     if(json.error) return false;
-    state.bidangList = json.items || [];
+    let changed = false;
+    const normalized = (json.items || []).map(it=>{
+      const clean = normalizeBidang(it.bidang);
+      if(clean !== it.bidang) changed = true;
+      return { ...it, bidang: clean };
+    });
+    state.bidangList = normalized;
     Store.set('bidangList', state.bidangList);
+    if(changed) pushBidangToSheets(true); // rapikan otomatis penulisan Bidang yang belum baku di spreadsheet
     return true;
   }catch(err){ return false; }
 }
@@ -2006,7 +2038,7 @@ function handleBidangExcel(file){
     let updated = 0, added = 0;
     aoa.slice(1).forEach(row=>{
       const nip = String(row[nipIdx]||'').trim();
-      const bidang = String(row[bidangIdx]||'').trim();
+      const bidang = normalizeBidang(row[bidangIdx]);
       if(!nip) return;
       let entry = state.bidangList.find(b=> b.nip === nip);
       if(entry){ entry.bidang = bidang; updated++; }
