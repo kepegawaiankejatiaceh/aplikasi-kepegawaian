@@ -3,10 +3,12 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aplikasi Administrasi Kepegawaian</title>
+<title>Aplikasi Administrasi Subbag Kepegawaian</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
 <style>
   :root{
     --bg:#F6F4EE;
@@ -366,17 +368,17 @@ const CATEGORIES = [
     { id:'tanggalKep', label:'Tanggal KEP', type:'date' },
   ]},
   { key:'diklat', label:'Diklat', sheet:'Diklat', fields:[
-    { id:'namaDiklat', label:'Nama Diklat', type:'text' },
-    { id:'penyelenggara', label:'Penyelenggara', type:'text' },
+    { id:'namaDiklat', label:'Nama Diklat', type:'text', suggest:true },
+    { id:'penyelenggara', label:'Penyelenggara', type:'text', suggest:true },
     { id:'jenisDiklat', label:'Jenis Diklat', type:'select', options:['Struktural','Fungsional','Teknis','Lainnya'] },
     { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
     { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
-    { id:'tempat', label:'Tempat Penyelenggaraan', type:'text' },
+    { id:'tempat', label:'Tempat Penyelenggaraan', type:'text', suggest:true },
     { id:'nomorSertifikat', label:'Nomor Sertifikat', type:'text' },
   ]},
   { key:'magang', label:'Magang', sheet:'Magang', fields:[
-    { id:'asalInstansi', label:'Asal Sekolah / Institusi', type:'text' },
-    { id:'unitPenempatan', label:'Unit Penempatan', type:'text' },
+    { id:'asalInstansi', label:'Asal Sekolah / Institusi', type:'text', suggest:true },
+    { id:'unitPenempatan', label:'Unit Penempatan', type:'text', suggest:true },
     { id:'tglMulai', label:'Tanggal Mulai', type:'date' },
     { id:'tglSelesai', label:'Tanggal Selesai', type:'date' },
     { id:'pembimbing', label:'Pembimbing / Mentor', type:'text' },
@@ -384,7 +386,14 @@ const CATEGORIES = [
   { key:'ujikom', label:'Ujian Kompetensi', sheet:'Ujian Kompetensi', fields:[
     { id:'jenisUjian', label:'Jenis Ujian', type:'select', options:['Uji Kompetensi Jabatan','Assessment Manajerial','Uji Kompetensi Teknis','Lainnya'] },
     { id:'tglUjian', label:'Tanggal Ujian', type:'date' },
-    { id:'penyelenggara', label:'Penyelenggara', type:'text' },
+    { id:'penyelenggara', label:'Penyelenggara', type:'text', suggest:true },
+    { id:'nilai', label:'Nilai', type:'text' },
+    { id:'hasil', label:'Hasil', type:'select', options:['Lulus / Kompeten','Tidak Lulus / Belum Kompeten'] },
+  ]},
+  { key:'ujiandinas', label:'Ujian Dinas', sheet:'Ujian Dinas', fields:[
+    { id:'jenisUjianDinas', label:'Jenis Ujian Dinas', type:'select', options:['Ujian Dinas Tingkat I','Ujian Dinas Tingkat II'] },
+    { id:'tglUjian', label:'Tanggal Ujian', type:'date' },
+    { id:'penyelenggara', label:'Penyelenggara', type:'text', suggest:true },
     { id:'nilai', label:'Nilai', type:'text' },
     { id:'hasil', label:'Hasil', type:'select', options:['Lulus / Kompeten','Tidak Lulus / Belum Kompeten'] },
   ]},
@@ -394,7 +403,7 @@ const CATEGORIES = [
     { id:'pelanggaran', label:'Bentuk Pelanggaran', type:'text' },
     { id:'nomorSk', label:'Nomor SK', type:'text' },
     { id:'tglSk', label:'Tanggal SK', type:'date' },
-    { id:'pejabatPenetap', label:'Pejabat Penetap', type:'text' },
+    { id:'pejabatPenetap', label:'Pejabat Penetap', type:'text', suggest:true },
   ]},
 ];
 
@@ -666,6 +675,7 @@ async function fetchAllRecordsFromSheets(){
     if(json.error) return false;
     state.records = json.records || [];
     Store.set('records', state.records);
+    populateSuggestionDatalists();
     return true;
   }catch(err){ return false; }
 }
@@ -830,7 +840,24 @@ function fieldHTML(catKey, f){
     return `<div class="field"><label for="${id}">${f.label}</label>
       <select id="${id}"><option value="">— pilih —</option>${f.options.map(o=>`<option value="${o}">${o}</option>`).join('')}</select></div>`;
   }
+  if(f.suggest){
+    return `<div class="field"><label for="${id}">${f.label}</label>
+      <input type="text" id="${id}" list="dl_${f.id}" autocomplete="off">
+      <datalist id="dl_${f.id}"></datalist></div>`;
+  }
   return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"></div>`;
+}
+
+const SUGGESTION_FIELD_IDS = ['asalInstansi','namaDiklat','penyelenggara','tempat','unitPenempatan','pejabatPenetap'];
+function populateSuggestionDatalists(){
+  SUGGESTION_FIELD_IDS.forEach(fid=>{
+    const dl = document.getElementById(`dl_${fid}`);
+    if(!dl) return;
+    const values = Array.from(new Set(
+      state.records.map(r=> r.detail && r.detail[fid]).filter(v=> v && String(v).trim())
+    )).sort((a,b)=> String(a).localeCompare(String(b)));
+    dl.innerHTML = values.map(v=>`<option value="${String(v).replace(/"/g,'&quot;')}"></option>`).join('');
+  });
 }
 
 const MONTHLY_RECAP_KEYS = ['pernikahan','perceraian','keluarnegeri'];
@@ -914,6 +941,10 @@ function panelCategoryWithMonthlyRekapHTML(cat){
           </div>
         </div>
         <div class="preview-wrap"><table class="data-table" id="rekapTable_${cat.key}"></table></div>
+        <div class="btn-row">
+          <button class="btn secondary" data-export-excel="${cat.key}">Ekspor Excel</button>
+          <button class="btn secondary" data-export-pdf="${cat.key}">Ekspor PDF</button>
+        </div>
       </div>
     </div>
   </section>`;
@@ -1040,6 +1071,8 @@ function wireMonthlyRekap(cat){
   }, (key)=>{ if(key==='rekap') renderMonthlyRekap(cat, true); });
 
   document.getElementById(`filterBulan_${cat.key}`).addEventListener('change', ()=> renderMonthlyRekap(cat, false));
+  document.querySelector(`[data-export-excel="${cat.key}"]`).addEventListener('click', ()=> exportMonthlyRekapExcel(cat));
+  document.querySelector(`[data-export-pdf="${cat.key}"]`).addEventListener('click', ()=> exportMonthlyRekapPDF(cat));
 }
 
 function renderMonthlyRekap(cat, rebuildOptions){
@@ -1058,16 +1091,18 @@ function renderMonthlyRekap(cat, rebuildOptions){
   table.innerHTML = '<tr><th>Nama</th><th>NIP/Ket.</th><th>Tgl Pengajuan Pegawai</th><th>Tgl Persetujuan Pimpinan</th><th>Nomor Surat</th><th>Status KEP</th><th>Nomor KEP</th><th>Tanggal KEP</th></tr>' +
     list.slice().sort((a,b)=> (b.detail.tglPersetujuanPimpinan||'').localeCompare(a.detail.tglPersetujuanPimpinan||'')).map(r=>`<tr>
       <td>${r.nama}</td><td>${r.nip||'-'}</td>
-      <td>${r.detail.tglPengajuanPegawai||'-'}</td><td>${r.detail.tglPersetujuanPimpinan||'-'}</td>
+      <td>${formatTanggalID(r.detail.tglPengajuanPegawai)}</td><td>${formatTanggalID(r.detail.tglPersetujuanPimpinan)}</td>
       <td>${r.detail.nomorSurat||'-'}</td><td>${r.detail.statusKep||'-'}</td>
-      <td>${r.detail.nomorKep||'-'}</td><td>${r.detail.tanggalKep||'-'}</td>
+      <td>${r.detail.nomorKep||'-'}</td><td>${formatTanggalID(r.detail.tanggalKep)}</td>
     </tr>`).join('');
 }
+function exportMonthlyRekapExcel(cat){ exportTableToExcel(`rekapTable_${cat.key}`, `Rekap_${cat.sheet.replace(/\s+/g,'_')}_${todayStamp()}.xlsx`, cat.label); }
+function exportMonthlyRekapPDF(cat){ exportTableToPDF(`rekapTable_${cat.key}`, `Rekap_${cat.sheet.replace(/\s+/g,'_')}_${todayStamp()}.pdf`, `Rekap ${cat.label}`); }
 
 /* =========================================================
    MODUL: IZIN CUTI (Permohonan, Cuti Berjalan, Rekap, Pengaturan)
    ========================================================= */
-const BIDANG_OPTIONS = ['Eselon II dan III','Pembinaan','Intel','Pidum','Pidsus','Datun','Pidmil','Aset','Pengawasan'];
+const BIDANG_OPTIONS = ['Eselon II dan III','Pembinaan','Intel','Pidum','Pidsus','Datun','Pidmil','Aset','Pengawasan','Tata Usaha'];
 const CUTI_STATUS_OPTIONS = ['Pengajuan','Disetujui','Ditolak','Ditunda','Dibatalkan','Berjalan'];
 const STATUS_AWAL_OPTIONS = ['Pengajuan','Disetujui'];
 const CUTI_DEDUCTING_STATUSES = ['Disetujui','Berjalan']; // status yang memotong sisa cuti
@@ -1186,6 +1221,10 @@ function panelCutiHTML(){
             </div>
           </div>
           <div class="preview-wrap"><table class="data-table" id="rekapStatusTable"></table></div>
+          <div class="btn-row">
+            <button class="btn secondary" id="btnExportStatusExcel">Ekspor Excel</button>
+            <button class="btn secondary" id="btnExportStatusPDF">Ekspor PDF</button>
+          </div>
         </div>
 
         <div id="rekapCutiSub-bidang" style="display:none;">
@@ -1197,9 +1236,20 @@ function panelCutiHTML(){
                 ${BIDANG_OPTIONS.map(b=>`<option value="${b}">${b}</option>`).join('')}
               </select>
             </div>
+            <div class="field">
+              <label>Filter Status</label>
+              <select id="filterStatusBidangCuti">
+                <option value="">Semua Status</option>
+                ${CUTI_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
+              </select>
+            </div>
           </div>
           <div class="summary-cards" id="rekapBidangSummary"></div>
-          <div class="preview-wrap"><table class="data-table" id="rekapBidangTable"></table></div>
+          <div id="rekapBidangGroups"></div>
+          <div class="btn-row">
+            <button class="btn secondary" id="btnExportBidangExcel">Ekspor Excel</button>
+            <button class="btn secondary" id="btnExportBidangPDF">Ekspor PDF</button>
+          </div>
         </div>
 
         <div id="rekapCutiSub-perorangan" style="display:none;">
@@ -1212,6 +1262,10 @@ function panelCutiHTML(){
           </div>
           <div id="peroranganInfo_cuti"></div>
           <div class="preview-wrap"><table class="data-table" id="rekapPeroranganTable"></table></div>
+          <div class="btn-row">
+            <button class="btn secondary" id="btnExportPeroranganExcel">Ekspor Excel</button>
+            <button class="btn secondary" id="btnExportPeroranganPDF">Ekspor PDF</button>
+          </div>
         </div>
       </div>
 
@@ -1320,6 +1374,19 @@ function isCutiSedangBerjalanTanggal(r){
   const selesai = r.detail.tglSelesai ? new Date(r.detail.tglSelesai) : null;
   if(!mulai || !selesai) return false;
   return today >= mulai && today <= selesai;
+}
+
+/** Menampilkan tanggal dalam format DD-MM-YYYY, apa pun bentuk aslinya
+ *  (baik "2026-08-31" maupun "2026-08-31T17:00:00.000Z"). */
+function formatTanggalID(value){
+  if(!value) return '-';
+  const s = String(value);
+  const datePart = s.length >= 10 ? s.slice(0,10) : s;
+  const parts = datePart.split('-');
+  if(parts.length === 3 && parts[0].length === 4){
+    return `${parts[2]}-${parts[1]}-${parts[0]}`;
+  }
+  return s;
 }
 
 /* ---------- Sub-tab switching (generik) ---------- */
@@ -1489,7 +1556,7 @@ function renderCutiBerjalan(){
     list.slice().reverse().map(r=>`
       <tr>
         <td>${r.nama}</td><td>${r.nip||'-'}</td><td>${r.detail.bidang||'-'}</td>
-        <td>${r.detail.jenisCuti||'-'}</td><td>${r.detail.tglMulai||'-'}</td><td>${r.detail.tglSelesai||'-'}</td>
+        <td>${r.detail.jenisCuti||'-'}</td><td>${formatTanggalID(r.detail.tglMulai)}</td><td>${formatTanggalID(r.detail.tglSelesai)}</td>
         <td>${r.detail.jumlahHari||'-'}</td>
         <td><select data-status-id="${r.id}">${CUTI_STATUS_OPTIONS.map(s=>`<option value="${s}" ${s===r.detail.statusCuti?'selected':''}>${s}</option>`).join('')}</select></td>
       </tr>`).join('');
@@ -1567,27 +1634,41 @@ function renderRekapStatus(){
   table.innerHTML = '<tr><th>Nama</th><th>NIP</th><th>Bidang</th><th>Jenis Cuti</th><th>Tgl Mulai</th><th>Tgl Selesai</th><th>Jml Hari</th><th>Status</th></tr>' +
     list.slice().reverse().map(r=>`<tr>
       <td>${r.nama}</td><td>${r.nip||'-'}</td><td>${r.detail.bidang||'-'}</td>
-      <td>${r.detail.jenisCuti||'-'}</td><td>${r.detail.tglMulai||'-'}</td><td>${r.detail.tglSelesai||'-'}</td>
+      <td>${r.detail.jenisCuti||'-'}</td><td>${formatTanggalID(r.detail.tglMulai)}</td><td>${formatTanggalID(r.detail.tglSelesai)}</td>
       <td>${r.detail.jumlahHari||'-'}</td><td><span class="badge synced">${r.detail.statusCuti||'-'}</span></td>
     </tr>`).join('');
 }
+
+/** Rekap Bidang: setiap Bidang ditampilkan sebagai tabel terpisah (bukan digabung
+ *  jadi satu tabel besar), dengan filter Bidang & filter Status di sampingnya. */
 function renderRekapBidang(){
-  const filter = document.getElementById('filterBidangCuti').value;
-  const all = allCutiRecords();
+  const bidangFilter = document.getElementById('filterBidangCuti').value;
+  const statusFilter = document.getElementById('filterStatusBidangCuti').value;
+  const all = allCutiRecords().filter(r=> !statusFilter || r.detail.statusCuti === statusFilter);
+
   document.getElementById('rekapBidangSummary').innerHTML = BIDANG_OPTIONS.map(b=>{
     const n = all.filter(r=> r.detail.bidang === b).length;
     return `<div class="summary-card"><div class="num">${n}</div><div class="lbl">${b}</div></div>`;
   }).join('');
-  const list = all.filter(r=> !filter || r.detail.bidang === filter);
-  const table = document.getElementById('rekapBidangTable');
-  if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data.</td></tr>'; return; }
-  table.innerHTML = '<tr><th>Bidang</th><th>Nama</th><th>NIP</th><th>Jenis Cuti</th><th>Tgl Mulai</th><th>Tgl Selesai</th><th>Status</th></tr>' +
-    list.slice().reverse().map(r=>`<tr>
-      <td>${r.detail.bidang||'-'}</td><td>${r.nama}</td><td>${r.nip||'-'}</td>
-      <td>${r.detail.jenisCuti||'-'}</td><td>${r.detail.tglMulai||'-'}</td><td>${r.detail.tglSelesai||'-'}</td>
-      <td>${r.detail.statusCuti||'-'}</td>
-    </tr>`).join('');
+
+  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
+  const container = document.getElementById('rekapBidangGroups');
+  container.innerHTML = groups.map(b=>{
+    const rows = all.filter(r=> r.detail.bidang === b);
+    const tableHTML = rows.length
+      ? `<div class="preview-wrap"><table class="data-table">
+          <tr><th>Nama</th><th>NIP</th><th>Jenis Cuti</th><th>Tgl Mulai</th><th>Tgl Selesai</th><th>Jml Hari</th><th>Status</th></tr>
+          ${rows.slice().reverse().map(r=>`<tr>
+            <td>${r.nama}</td><td>${r.nip||'-'}</td><td>${r.detail.jenisCuti||'-'}</td>
+            <td>${formatTanggalID(r.detail.tglMulai)}</td><td>${formatTanggalID(r.detail.tglSelesai)}</td>
+            <td>${r.detail.jumlahHari||'-'}</td><td>${r.detail.statusCuti||'-'}</td>
+          </tr>`).join('')}
+        </table></div>`
+      : `<div class="empty-state">Tidak ada data untuk Bidang ini.</div>`;
+    return `<h3 style="font-family:var(--serif);font-size:15px;font-weight:600;margin:20px 0 8px;">${b} <span style="color:var(--ink-soft);font-weight:400;font-size:13px;">(${rows.length} data)</span></h3>${tableHTML}`;
+  }).join('');
 }
+
 function renderRekapPerorangan(emp){
   showBanner('peroranganInfo_cuti', findSisaCuti(emp.nip)?'info':'warn', `${emp.nama} (${emp.nip||'-'}) — Sisa Cuti: ${sisaCutiText(emp.nip)}`);
   const list = allCutiRecords().filter(r=> r.nip === emp.nip);
@@ -1595,11 +1676,59 @@ function renderRekapPerorangan(emp){
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Belum ada riwayat cuti untuk pegawai ini.</td></tr>'; return; }
   table.innerHTML = '<tr><th>Jenis Cuti</th><th>Tgl Mulai</th><th>Tgl Selesai</th><th>Jml Hari</th><th>Status</th><th>Nomor Surat</th></tr>' +
     list.slice().reverse().map(r=>`<tr>
-      <td>${r.detail.jenisCuti||'-'}</td><td>${r.detail.tglMulai||'-'}</td><td>${r.detail.tglSelesai||'-'}</td>
+      <td>${r.detail.jenisCuti||'-'}</td><td>${formatTanggalID(r.detail.tglMulai)}</td><td>${formatTanggalID(r.detail.tglSelesai)}</td>
       <td>${r.detail.jumlahHari||'-'}</td><td>${r.detail.statusCuti||'-'}</td><td>${r.detail.nomorSurat||'-'}</td>
     </tr>`).join('');
 }
 function renderRekapCutiAll(){ renderRekapStatus(); renderRekapBidang(); }
+
+/* ---------- Ekspor Rekap Cuti (Excel & PDF) ---------- */
+function exportRekapStatusExcel(){ exportTableToExcel('rekapStatusTable', `Rekap_Cuti_Status_${todayStamp()}.xlsx`, 'Status'); }
+function exportRekapStatusPDF(){ exportTableToPDF('rekapStatusTable', `Rekap_Cuti_Status_${todayStamp()}.pdf`, 'Rekap Cuti - Status'); }
+function exportRekapPeroranganExcel(){ exportTableToExcel('rekapPeroranganTable', `Rekap_Cuti_Perorangan_${todayStamp()}.xlsx`, 'Perorangan'); }
+function exportRekapPeroranganPDF(){ exportTableToPDF('rekapPeroranganTable', `Rekap_Cuti_Perorangan_${todayStamp()}.pdf`, 'Rekap Cuti - Perorangan'); }
+
+function exportRekapBidangExcel(){
+  const bidangFilter = document.getElementById('filterBidangCuti').value;
+  const statusFilter = document.getElementById('filterStatusBidangCuti').value;
+  const all = allCutiRecords().filter(r=> !statusFilter || r.detail.statusCuti === statusFilter);
+  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
+  const wb = XLSX.utils.book_new();
+  groups.forEach(b=>{
+    const rows = all.filter(r=> r.detail.bidang === b);
+    if(!rows.length) return;
+    const aoa = [['Nama','NIP','Jenis Cuti','Tgl Mulai','Tgl Selesai','Jml Hari','Status'],
+      ...rows.map(r=>[r.nama, r.nip||'', r.detail.jenisCuti||'', formatTanggalID(r.detail.tglMulai), formatTanggalID(r.detail.tglSelesai), r.detail.jumlahHari||'', r.detail.statusCuti||''])];
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(aoa), b.slice(0,31));
+  });
+  if(!wb.SheetNames.length){ alert('Tidak ada data untuk diekspor.'); return; }
+  XLSX.writeFile(wb, `Rekap_Cuti_Bidang_${todayStamp()}.xlsx`);
+}
+function exportRekapBidangPDF(){
+  const bidangFilter = document.getElementById('filterBidangCuti').value;
+  const statusFilter = document.getElementById('filterStatusBidangCuti').value;
+  const all = allCutiRecords().filter(r=> !statusFilter || r.detail.statusCuti === statusFilter);
+  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape' });
+  let wrote = false;
+  groups.forEach(b=>{
+    const rows = all.filter(r=> r.detail.bidang === b);
+    if(!rows.length) return;
+    if(wrote) doc.addPage();
+    wrote = true;
+    doc.setFontSize(12);
+    doc.text(`Rekap Cuti - ${b}`, 14, 14);
+    doc.autoTable({
+      startY: 20,
+      head: [['Nama','NIP','Jenis Cuti','Tgl Mulai','Tgl Selesai','Jml Hari','Status']],
+      body: rows.map(r=>[r.nama, r.nip||'-', r.detail.jenisCuti||'-', formatTanggalID(r.detail.tglMulai), formatTanggalID(r.detail.tglSelesai), r.detail.jumlahHari||'-', r.detail.statusCuti||'-']),
+      styles:{ fontSize:8 },
+    });
+  });
+  if(!wrote){ alert('Tidak ada data untuk diekspor.'); return; }
+  doc.save(`Rekap_Cuti_Bidang_${todayStamp()}.pdf`);
+}
 
 function wireRekapPerorangan(){
   const input = document.getElementById('searchPerorangan_cuti');
@@ -1786,6 +1915,14 @@ function wireCutiPanel(){
   });
   document.getElementById('filterStatusCuti').addEventListener('change', renderRekapStatus);
   document.getElementById('filterBidangCuti').addEventListener('change', renderRekapBidang);
+  document.getElementById('filterStatusBidangCuti').addEventListener('change', renderRekapBidang);
+
+  document.getElementById('btnExportStatusExcel').addEventListener('click', exportRekapStatusExcel);
+  document.getElementById('btnExportStatusPDF').addEventListener('click', exportRekapStatusPDF);
+  document.getElementById('btnExportBidangExcel').addEventListener('click', exportRekapBidangExcel);
+  document.getElementById('btnExportBidangPDF').addEventListener('click', exportRekapBidangPDF);
+  document.getElementById('btnExportPeroranganExcel').addEventListener('click', exportRekapPeroranganExcel);
+  document.getElementById('btnExportPeroranganPDF').addEventListener('click', exportRekapPeroranganPDF);
 
   wireCutiPermohonan();
   wireRekapPerorangan();
@@ -1820,6 +1957,7 @@ function panelRekapHTML(){
       <div class="btn-row">
         <button class="btn secondary" id="btnRefreshSheets">Muat Ulang dari Google Sheets</button>
         <button class="btn accent" id="btnExportExcel">Ekspor ke Excel</button>
+        <button class="btn secondary" id="btnExportPDF">Ekspor ke PDF</button>
       </div>
       <div id="rekapBanner"></div>
     </div>
@@ -1882,6 +2020,26 @@ function renderRecordsTable(){
   });
 }
 
+/* ---------- Ekspor generik (dipakai di semua tampilan rekap) ---------- */
+function todayStamp(){ return new Date().toISOString().slice(0,10); }
+
+function exportTableToExcel(tableId, filename, sheetName){
+  const table = document.getElementById(tableId);
+  if(!table || !table.querySelector('th')){ alert('Tidak ada data untuk diekspor.'); return; }
+  const wb = XLSX.utils.table_to_book(table, { sheet: (sheetName||'Sheet1').slice(0,31) });
+  XLSX.writeFile(wb, filename);
+}
+function exportTableToPDF(tableId, filename, title){
+  const table = document.getElementById(tableId);
+  if(!table || !table.querySelector('th')){ alert('Tidak ada data untuk diekspor.'); return; }
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation:'landscape' });
+  doc.setFontSize(12);
+  doc.text(title, 14, 12);
+  doc.autoTable({ html: '#'+tableId, startY: 18, styles:{ fontSize:8 } });
+  doc.save(filename);
+}
+
 function exportToExcel(){
   const list = currentFilteredRecords();
   if(!list.length){ showBanner('rekapBanner','warn','Tidak ada data untuk diekspor.'); return; }
@@ -1892,15 +2050,19 @@ function exportToExcel(){
     const header = ['Sumber','NIP/Keterangan','Nama','Jabatan','Unit Kerja', ...cat.fields.map(f=>f.label), 'Catatan','Tanggal Input'];
     const aoa = [header, ...rows.map(r=> [
       r.sumber, r.nip||'', r.nama, r.jabatan||'', r.unit||'',
-      ...cat.fields.map(f=> r.detail[f.id]||''),
+      ...cat.fields.map(f=> f.type==='date' ? formatTanggalID(r.detail[f.id]) : (r.detail[f.id]||'')),
       r.catatan||'', new Date(r.tanggalInput).toLocaleString('id-ID')
     ])];
     const ws = XLSX.utils.aoa_to_sheet(aoa);
     XLSX.utils.book_append_sheet(wb, ws, cat.sheet.slice(0,31));
   });
-  const filename = `Data_Kepegawaian_${new Date().toISOString().slice(0,10)}.xlsx`;
+  const filename = `Data_Kepegawaian_${todayStamp()}.xlsx`;
   XLSX.writeFile(wb, filename);
   showBanner('rekapBanner','ok', `Berhasil diekspor sebagai ${filename}.`);
+}
+
+function exportRekapUtamaPDF(){
+  exportTableToPDF('recordsTable', `Data_Kepegawaian_${todayStamp()}.pdf`, 'Rekap Data Kepegawaian');
 }
 
 /* =========================================================
@@ -1955,6 +2117,7 @@ async function init(){
 
   state.employees = await Store.get('employees', []);
   state.records = await Store.get('records', []);
+  populateSuggestionDatalists();
   state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Sheet1' });
   state.bidangList = await Store.get('bidangList', []);
   state.sisaCutiList = await Store.get('sisaCutiList', []);
@@ -1988,6 +2151,7 @@ async function init(){
   document.getElementById('filterKategori').addEventListener('change', renderRecordsTable);
   document.getElementById('filterSearch').addEventListener('input', renderRecordsTable);
   document.getElementById('btnExportExcel').addEventListener('click', exportToExcel);
+  document.getElementById('btnExportPDF').addEventListener('click', exportRekapUtamaPDF);
   document.getElementById('btnRefreshSheets').addEventListener('click', refreshFromSheetsAndRender);
 
   document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
