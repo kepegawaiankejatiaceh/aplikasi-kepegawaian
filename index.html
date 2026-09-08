@@ -373,14 +373,7 @@
 
 <div class="layout">
   <nav class="tabs" id="tabNav">
-    <div class="group-label">Data Pegawai</div>
-    <button data-tab="sumber" class="active">Sumber Data Pegawai</button>
-    <div class="group-label">Input Data</div>
-    <!-- category buttons injected by JS -->
-    <div class="group-label">Laporan</div>
-    <button data-tab="rekap">Rekap &amp; Ekspor</button>
-    <div class="group-label">Lainnya</div>
-    <button data-tab="pengaturan">Pengaturan</button>
+    <!-- isi navigasi dirakit sepenuhnya oleh buildNav() di JavaScript -->
   </nav>
 
   <main id="mainArea">
@@ -637,56 +630,6 @@ function showTab(tab){
   if(tab === 'dashboard') renderDashboard();
   if(tab === 'report:pegawai') renderRekapPegawai(true);
   else if(tab.startsWith('report:')) renderCategoryReport(tab.slice(7), true);
-}
-
-/* =========================================================
-   PANEL: SUMBER DATA PEGAWAI
-   ========================================================= */
-function panelSumberHTML(){
-  return `
-  <section class="panel active" id="panel-sumber">
-    <div class="card">
-      <h2>Ambil dari Google Spreadsheet</h2>
-      <p class="hint">Karena keamanan browser, aplikasi ini tidak bisa membaca Google Spreadsheet secara langsung. Data pegawai otomatis dimuat setiap aplikasi dibuka (bila kolom NIP &amp; Nama bisa ditebak otomatis dari header). Gunakan tombol di bawah untuk memuat ulang secara manual kapan saja.</p>
-      <div class="field-grid">
-        <div class="field">
-          <label>Nama Sheet Data Pegawai</label>
-          <input type="text" id="inpSheetPegawai" placeholder="Pegawai">
-        </div>
-      </div>
-      <div class="btn-row">
-        <button class="btn accent" id="btnFetchPegawai">Ambil Data Pegawai dari Spreadsheet</button>
-      </div>
-      <div id="sumberBanner"></div>
-    </div>
-
-    <div class="card">
-      <h2>Atau Unggah File Excel Lokal</h2>
-      <p class="hint">Gunakan ini jika data pegawai tersimpan di komputer Anda (format .xlsx, .xls, atau .csv). Kolom akan disesuaikan secara manual di bawah setelah file terbaca.</p>
-      <input type="file" id="inpFileExcel" accept=".xlsx,.xls,.csv">
-    </div>
-
-    <div class="card" id="mappingCard" style="display:none;">
-      <h2>Sesuaikan Kolom</h2>
-      <p class="hint">Cocokkan kolom pada file/sheet Anda dengan data standar yang dipakai aplikasi ini.</p>
-      <div id="mappingArea"></div>
-      <div class="preview-wrap"><table class="data-table" id="previewTable"></table></div>
-      <div class="btn-row">
-        <button class="btn accent" id="btnUseMapping">Gunakan Data Ini</button>
-        <button class="btn secondary" id="btnCancelMapping">Batal</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>Data Pegawai Termuat</h2>
-      <p class="hint" id="employeeCountText">Belum ada data pegawai dimuat.</p>
-      <div class="field">
-        <label>Cari untuk menguji data (nama / NIP)</label>
-        <input type="text" id="testSearchEmployee" placeholder="Ketik nama atau NIP...">
-      </div>
-      <div class="preview-wrap"><table class="data-table" id="employeeTable"></table></div>
-    </div>
-  </section>`;
 }
 
 let STANDARD_FIELDS = [
