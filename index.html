@@ -515,7 +515,12 @@ const CATEGORIES = [
   { key:'usulpangkat', label:'Usul Pangkat', sheet:'Usul Pangkat', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
     { id:'periode', label:'Periode (Bulan)', type:'month' },
-    { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
+    { id:'nomorPengantar', label:'Nomor Pengantar', type:'text' },
+    { id:'kekuranganBerkas', label:'Kekurangan Berkas', type:'text' },
+    { id:'printPengantar', label:'Print Pengantar', type:'text' },
+    { id:'ck', label:'CK', type:'text' },
+    { id:'statusUsul', label:'Status', type:'select', options:['Di Kirim','Di Tolak'] },
+    { id:'catatanPenolakan', label:'Catatan Penolakan', type:'text' },
   ]},
   { key:'pencantumangelar', label:'Pencantuman Gelar', sheet:'Pencantuman Gelar', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -617,6 +622,8 @@ let state = {
   bidangList: [],      // {nip, nama, bidang} - default bidang per pegawai (modul Cuti)
   sisaCutiList: [],    // {nip, nama, berjalan, tahunLalu, duaTahunLalu} - saldo sisa cuti (modul Cuti)
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
+  usulPangkatSelected: null, // pegawai terpilih pada form Input Pegawai (Usul Pangkat)
+  usulPangkatBerkasRows: [''], // baris dropdown Kekurangan Berkas yang sedang diisi
   rekapPegawaiList: [], // rekap 9 kolom per bulan: {bulan, satker, laki, perempuan, jaksaLk, jaksaPr, tuLk, tuPr, total}
 };
 
@@ -959,6 +966,11 @@ function rerenderVisibleData(){
     if(key === 'rekap') renderRekapCutiAll();
     if(key === 'pengaturan'){ renderBidangTable(); renderSisaCutiTable(); }
   }
+  if(tab === 'cat:usulpangkat'){
+    const activeSub = document.querySelector('#usulPangkatMainTabs button.active');
+    const key = activeSub ? activeSub.dataset.key : 'input';
+    if(key === 'rekap') renderRekapUsul(false);
+  }
   const simpleKey = tab.startsWith('cat:') ? tab.slice(4) : null;
   if(simpleKey && MONTHLY_RECAP_KEYS.includes(simpleKey)){
     const activeSub = document.querySelector(`#subTabs_${simpleKey} button.active`);
@@ -1018,7 +1030,7 @@ function tryAutoMapping(headers){
  *  perlu konfirmasi manual, supaya siapa pun yang membuka aplikasi langsung siap pakai. */
 async function autoLoadEmployeesIfConfigured(){
   const url = state.settings.webAppUrl;
-  const sheetName = state.settings.sheetPegawai || 'Worksheet';
+  const sheetName = state.settings.sheetPegawai || 'Sheet1';
   if(!url) return;
   try{
     const res = await fetch(`${url}?action=getPegawai&sheet=${encodeURIComponent(sheetName)}`);
@@ -2192,6 +2204,343 @@ function wireCutiPanel(){
 }
 
 /* =========================================================
+   MODUL: USUL PANGKAT (Input Pegawai, Rekap Usul)
+   ========================================================= */
+const KEKURANGAN_BERKAS_OPTIONS = ['Akreditasi','Ijazah','Transkip','Sertifikat Lulus','Ijin Belajar','Uraian Tugas','Karpeg','PAK','CPNS','Jabatan','Mutasi','Pangkat Gol','PNS','SKP 2022','SKP 2023','SKP 2024','SKP 2025','Menduduki Jabatan','SK Fungsional','Pelantikan','SPMT','CK'];
+
+function panelUsulPangkatHTML(){
+  return `
+  <section class="panel" id="panel-cat-usulpangkat">
+    <div class="card">
+      <h2>Usul Pangkat</h2>
+      <div class="subtabs" id="usulPangkatMainTabs">
+        <button data-key="input" class="active">Input Pegawai</button>
+        <button data-key="rekap">Rekap Usul</button>
+      </div>
+
+      <!-- ===== INPUT PEGAWAI ===== -->
+      <div id="usulPangkatSub-input">
+        <p class="hint">Pilih pegawai dari data yang telah dimuat, atau isi manual untuk pegawai lama / peserta magang / pihak non-pegawai.</p>
+        <div class="toggle-row">
+          <input type="checkbox" id="manual_usulpangkat">
+          <label for="manual_usulpangkat">Input manual (pegawai lama, peserta magang, atau non-pegawai)</label>
+        </div>
+        <div id="pegawaiPicker_usulpangkat">
+          <div class="field-grid">
+            <div class="field full employee-search">
+              <label>Cari Pegawai (nama / NIP)</label>
+              <input type="text" id="search_usulpangkat" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+              <div class="employee-results" id="results_usulpangkat" style="display:none;"></div>
+              <div class="selected-employee" id="selected_usulpangkat"></div>
+            </div>
+          </div>
+        </div>
+        <div id="manualFields_usulpangkat" style="display:none;">
+          <div class="field-grid">${manualFieldsHTML('usulpangkat')}</div>
+        </div>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:18px 0;">
+
+        <div class="field-grid">
+          ${fieldHTML('usulpangkat', CATEGORIES.find(c=>c.key==='usulpangkat').fields.find(f=>f.id==='tglInput'))}
+          ${fieldHTML('usulpangkat', CATEGORIES.find(c=>c.key==='usulpangkat').fields.find(f=>f.id==='periode'))}
+          ${fieldHTML('usulpangkat', CATEGORIES.find(c=>c.key==='usulpangkat').fields.find(f=>f.id==='nomorPengantar'))}
+          <div class="field full">
+            <label>Kekurangan Berkas</label>
+            <div id="kekuranganBerkasRows_usulpangkat"></div>
+            <button type="button" class="btn secondary" id="btnAddKekuranganBerkas" style="margin-top:8px;">+ Tambah Kekurangan Berkas</button>
+          </div>
+          <div class="field full"><label>Catatan Tambahan</label><textarea id="catatan_usulpangkat"></textarea></div>
+        </div>
+
+        <div class="btn-row">
+          <button class="btn accent" id="btnSaveUsulPangkat">Simpan Data</button>
+          <button class="btn secondary" id="btnResetUsulPangkat">Bersihkan Form</button>
+        </div>
+        <div id="formBanner_usulpangkat"></div>
+      </div>
+
+      <!-- ===== REKAP USUL ===== -->
+      <div id="usulPangkatSub-rekap" style="display:none;">
+        <p class="hint">Daftar pegawai yang sedang diusulkan Kenaikan Pangkatnya, dikelompokkan per periode.</p>
+        <div class="filters-row">
+          <div class="field">
+            <label>Periode</label>
+            <select id="filterPeriodeUsulPangkat"><option value="">Semua Periode</option></select>
+          </div>
+        </div>
+        <div id="usulPangkatCards"></div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function renderKekuranganBerkasRows(){
+  const container = document.getElementById('kekuranganBerkasRows_usulpangkat');
+  if(!container) return;
+  container.innerHTML = state.usulPangkatBerkasRows.map((val,i)=>`
+    <div class="field-grid" style="grid-template-columns:1fr auto;align-items:end;margin-bottom:8px;">
+      <div class="field">
+        <select data-berkas-idx="${i}">
+          <option value="">— pilih dokumen —</option>
+          ${KEKURANGAN_BERKAS_OPTIONS.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}
+        </select>
+      </div>
+      ${state.usulPangkatBerkasRows.length>1 ? `<button type="button" class="btn danger" data-remove-berkas-idx="${i}" style="padding:8px 12px;">&times;</button>` : '<div></div>'}
+    </div>`).join('');
+  container.querySelectorAll('[data-berkas-idx]').forEach(sel=>{
+    sel.addEventListener('change', ()=>{ state.usulPangkatBerkasRows[parseInt(sel.dataset.berkasIdx,10)] = sel.value; });
+  });
+  container.querySelectorAll('[data-remove-berkas-idx]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      state.usulPangkatBerkasRows.splice(parseInt(btn.dataset.removeBerkasIdx,10),1);
+      renderKekuranganBerkasRows();
+    });
+  });
+}
+
+function wireUsulPangkatInput(){
+  const manualCheckbox = document.getElementById('manual_usulpangkat');
+  manualCheckbox.addEventListener('change', ()=>{
+    document.getElementById('pegawaiPicker_usulpangkat').style.display = manualCheckbox.checked ? 'none' : 'block';
+    document.getElementById('manualFields_usulpangkat').style.display = manualCheckbox.checked ? 'block' : 'none';
+    state.usulPangkatSelected = null;
+  });
+
+  const searchInput = document.getElementById('search_usulpangkat');
+  const resultsBox = document.getElementById('results_usulpangkat');
+  searchInput.addEventListener('input', ()=>{
+    const q = searchInput.value.trim().toLowerCase();
+    if(q.length < 2){ resultsBox.style.display='none'; return; }
+    const matches = state.employees.filter(e=>
+      (e.nama||'').toLowerCase().includes(q) || (e.nip||'').toLowerCase().includes(q)
+    ).slice(0,15);
+    if(!matches.length){ resultsBox.innerHTML = '<div>Tidak ditemukan</div>'; resultsBox.style.display='block'; return; }
+    resultsBox.innerHTML = matches.map((e,i)=>`<div data-idx="${i}">${e.nama} — ${e.nip||'tanpa NIP'} <span style="color:var(--ink-soft)">(${e.jabatan||'-'})</span></div>`).join('');
+    resultsBox.style.display = 'block';
+    resultsBox.querySelectorAll('div[data-idx]').forEach(div=>{
+      div.addEventListener('click', ()=>{
+        const emp = matches[parseInt(div.dataset.idx,10)];
+        state.usulPangkatSelected = emp;
+        document.getElementById('selected_usulpangkat').textContent = `Terpilih: ${emp.nama} (${emp.nip||'-'})`;
+        searchInput.value = emp.nama;
+        resultsBox.style.display = 'none';
+      });
+    });
+  });
+  document.addEventListener('click', (e)=>{
+    if(!e.target.closest('#pegawaiPicker_usulpangkat')) resultsBox.style.display='none';
+  });
+
+  document.getElementById('btnAddKekuranganBerkas').addEventListener('click', ()=>{
+    state.usulPangkatBerkasRows.push('');
+    renderKekuranganBerkasRows();
+  });
+  renderKekuranganBerkasRows();
+
+  document.getElementById('btnSaveUsulPangkat').addEventListener('click', saveUsulPangkatRecord);
+  document.getElementById('btnResetUsulPangkat').addEventListener('click', resetUsulPangkatForm);
+}
+
+function resetUsulPangkatForm(){
+  document.getElementById('manual_usulpangkat').checked = false;
+  document.getElementById('pegawaiPicker_usulpangkat').style.display = 'block';
+  document.getElementById('manualFields_usulpangkat').style.display = 'none';
+  document.getElementById('search_usulpangkat').value = '';
+  document.getElementById('selected_usulpangkat').textContent = '';
+  ['manualNama','manualNip','manualJabatan','manualUnit'].forEach(p=> document.getElementById(`${p}_usulpangkat`).value='');
+  document.getElementById(`f_usulpangkat_tglInput`).value = '';
+  document.getElementById(`f_usulpangkat_periode`).value = '';
+  document.getElementById(`f_usulpangkat_nomorPengantar`).value = '';
+  document.getElementById('catatan_usulpangkat').value = '';
+  state.usulPangkatSelected = null;
+  state.usulPangkatBerkasRows = [''];
+  renderKekuranganBerkasRows();
+  document.getElementById('formBanner_usulpangkat').innerHTML = '';
+}
+
+async function saveUsulPangkatRecord(){
+  const isManual = document.getElementById('manual_usulpangkat').checked;
+  let nama, nip, jabatan, unit, sumber;
+  if(isManual){
+    nama = document.getElementById('manualNama_usulpangkat').value.trim();
+    nip = document.getElementById('manualNip_usulpangkat').value.trim();
+    jabatan = document.getElementById('manualJabatan_usulpangkat').value.trim();
+    unit = document.getElementById('manualUnit_usulpangkat').value.trim();
+    sumber = 'Manual';
+  } else {
+    const emp = state.usulPangkatSelected;
+    if(!emp){ showBanner('formBanner_usulpangkat','warn','Pilih pegawai terlebih dahulu, atau centang input manual.'); return; }
+    nama = emp.nama; nip = emp.nip; jabatan = emp.jabatan; unit = emp.unit;
+    sumber = 'Data Pegawai';
+  }
+  if(!nama){ showBanner('formBanner_usulpangkat','warn','Nama wajib diisi.'); return; }
+  if(!state.settings.webAppUrl){ showBanner('formBanner_usulpangkat','warn','URL Web App belum diatur — buka menu Pengaturan terlebih dahulu.'); return; }
+
+  const kekuranganBerkas = state.usulPangkatBerkasRows.filter(Boolean).join(', ');
+
+  const detail = {
+    tglInput: document.getElementById('f_usulpangkat_tglInput').value,
+    periode: document.getElementById('f_usulpangkat_periode').value,
+    nomorPengantar: document.getElementById('f_usulpangkat_nomorPengantar').value,
+    kekuranganBerkas,
+    printPengantar: 'Tidak',
+    ck: 'Tidak',
+    statusUsul: '',
+    catatanPenolakan: '',
+  };
+
+  const record = {
+    id: genId(), kategoriKey:'usulpangkat', kategoriLabel:'Usul Pangkat', sheet:'Usul Pangkat',
+    sumber, nama, nip, jabatan, unit, detail,
+    catatan: document.getElementById('catatan_usulpangkat').value.trim(),
+    tanggalInput: new Date().toISOString(),
+  };
+
+  const btn = document.getElementById('btnSaveUsulPangkat');
+  btn.disabled = true;
+  showBanner('formBanner_usulpangkat','info','Menyimpan ke Google Sheets...');
+  const ok = await pushRecordToSheets(record);
+  btn.disabled = false;
+  if(!ok){
+    showBanner('formBanner_usulpangkat','warn','Gagal menyimpan ke Google Sheets. Periksa koneksi internet Anda, lalu coba lagi. Data belum tersimpan.');
+    return;
+  }
+  await fetchAllRecordsFromSheets();
+  showBanner('formBanner_usulpangkat','ok', `Usul Pangkat untuk ${nama} berhasil disimpan.`);
+  resetUsulPangkatForm();
+}
+
+/* ---------- REKAP USUL ---------- */
+function allUsulPangkatRecords(){
+  return state.records.filter(r=> r.kategoriKey === 'usulpangkat');
+}
+
+function renderRekapUsul(rebuildPeriode){
+  const select = document.getElementById('filterPeriodeUsulPangkat');
+  const all = allUsulPangkatRecords();
+  if(rebuildPeriode){
+    const periods = Array.from(new Set(all.map(r=> r.detail.periode).filter(Boolean))).sort().reverse();
+    const current = select.value;
+    select.innerHTML = '<option value="">Semua Periode</option>' + periods.map(p=>`<option value="${p}" ${p===current?'selected':''}>${formatBulanID(p)}</option>`).join('');
+  }
+  const filterPeriode = select.value;
+  const list = all.filter(r=> !filterPeriode || r.detail.periode === filterPeriode);
+  const container = document.getElementById('usulPangkatCards');
+  if(!list.length){ container.innerHTML = '<div class="empty-state">Tidak ada usul pangkat pada periode ini.</div>'; return; }
+
+  // status blank/Di Kirim di atas, Di Tolak di bawah (mengikuti aturan sort pada Laporan)
+  const sorted = list.slice().sort((a,b)=>{
+    const rank = v=> v==='Di Tolak' ? 1 : 0;
+    const d = rank(a.detail.statusUsul) - rank(b.detail.statusUsul);
+    if(d !== 0) return d;
+    return (b.tanggalInput||'').localeCompare(a.tanggalInput||'');
+  });
+
+  container.innerHTML = sorted.map(r=>{
+    const berkasArr = (r.detail.kekuranganBerkas||'').split(',').map(s=>s.trim()).filter(Boolean);
+    const chips = berkasArr.length
+      ? berkasArr.map((b,i)=>`<span class="badge unsynced" style="margin:2px 4px 2px 0;">${b} <button type="button" data-remove-berkas="${i}" data-record-id="${r.id}" style="border:none;background:none;color:inherit;cursor:pointer;font-weight:700;margin-left:4px;">&times;</button></span>`).join('')
+      : `<span class="badge synced">Berkas Lengkap</span>`;
+    return `
+    <div class="card" style="margin-bottom:14px;">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+        <div>
+          <strong>${r.nama}</strong> <span style="color:var(--ink-soft);">(${r.nip||'-'})</span><br>
+          <span style="color:var(--ink-soft);font-size:12.5px;">Periode: ${formatBulanID(r.detail.periode)} &middot; Nomor Pengantar: ${r.detail.nomorPengantar||'-'} &middot; Tanggal Input: ${formatTanggalID(r.detail.tglInput)}</span>
+        </div>
+      </div>
+      <div style="margin:10px 0;">
+        <label style="font-size:12.5px;color:var(--ink-soft);font-weight:500;">Kekurangan Berkas</label><br>
+        ${chips}
+      </div>
+      <div class="field-grid">
+        <div class="field" style="flex-direction:row;align-items:center;gap:8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="checkbox" data-usul-check="printPengantar" data-record-id="${r.id}" ${r.detail.printPengantar==='Ya'?'checked':''}> Print Pengantar</label>
+        </div>
+        <div class="field">
+          <label style="display:flex;align-items:center;gap:6px;font-weight:400;"><input type="checkbox" data-usul-check="ck" data-record-id="${r.id}" ${r.detail.ck==='Ya'?'checked':''}> CK</label>
+        </div>
+        <div class="field">
+          <label>Status</label>
+          <select data-usul-status data-record-id="${r.id}">
+            <option value="" ${!r.detail.statusUsul?'selected':''}>— Belum Diproses —</option>
+            <option value="Di Kirim" ${r.detail.statusUsul==='Di Kirim'?'selected':''}>Di Kirim</option>
+            <option value="Di Tolak" ${r.detail.statusUsul==='Di Tolak'?'selected':''}>Di Tolak</option>
+          </select>
+        </div>
+        <div class="field" data-catatan-tolak-wrap="${r.id}" style="display:${r.detail.statusUsul==='Di Tolak'?'block':'none'};">
+          <label>Catatan Penolakan</label>
+          <input type="text" data-usul-catatan-tolak data-record-id="${r.id}" value="${r.detail.catatanPenolakan||''}">
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+
+  wireRekapUsulCardInteractions();
+}
+
+async function pushUsulPangkatFieldUpdate(recordId, mutateFn){
+  const rec = state.records.find(r=> r.id === recordId);
+  if(!rec) return;
+  mutateFn(rec.detail);
+  const ok = await pushRecordToSheets(rec);
+  if(!ok){
+    alert('Gagal menyimpan perubahan ke Google Sheets. Periksa koneksi internet Anda.');
+    await fetchAllRecordsFromSheets(); // pulihkan tampilan sesuai data server
+    renderRekapUsul(false);
+    return;
+  }
+  await fetchAllRecordsFromSheets();
+  renderRekapUsul(false);
+}
+
+function wireRekapUsulCardInteractions(){
+  const container = document.getElementById('usulPangkatCards');
+  container.querySelectorAll('[data-remove-berkas]').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const idx = parseInt(btn.dataset.removeBerkas,10);
+      pushUsulPangkatFieldUpdate(btn.dataset.recordId, (detail)=>{
+        const arr = (detail.kekuranganBerkas||'').split(',').map(s=>s.trim()).filter(Boolean);
+        arr.splice(idx,1);
+        detail.kekuranganBerkas = arr.join(', ');
+      });
+    });
+  });
+  container.querySelectorAll('[data-usul-check]').forEach(chk=>{
+    chk.addEventListener('change', ()=>{
+      const field = chk.dataset.usulCheck;
+      pushUsulPangkatFieldUpdate(chk.dataset.recordId, (detail)=>{ detail[field] = chk.checked ? 'Ya' : 'Tidak'; });
+    });
+  });
+  container.querySelectorAll('[data-usul-status]').forEach(sel=>{
+    sel.addEventListener('change', ()=>{
+      const wrap = document.querySelector(`[data-catatan-tolak-wrap="${sel.dataset.recordId}"]`);
+      if(wrap) wrap.style.display = sel.value === 'Di Tolak' ? 'block' : 'none';
+      pushUsulPangkatFieldUpdate(sel.dataset.recordId, (detail)=>{
+        detail.statusUsul = sel.value;
+        if(sel.value !== 'Di Tolak') detail.catatanPenolakan = '';
+      });
+    });
+  });
+  container.querySelectorAll('[data-usul-catatan-tolak]').forEach(inp=>{
+    inp.addEventListener('change', ()=>{
+      pushUsulPangkatFieldUpdate(inp.dataset.recordId, (detail)=>{ detail.catatanPenolakan = inp.value.trim(); });
+    });
+  });
+}
+
+function wireUsulPangkatPanel(){
+  wireSimpleSubtabs('usulPangkatMainTabs', {
+    input: 'usulPangkatSub-input', rekap: 'usulPangkatSub-rekap',
+  }, (key)=>{ if(key==='rekap') renderRekapUsul(true); });
+
+  document.getElementById('filterPeriodeUsulPangkat').addEventListener('change', ()=> renderRekapUsul(false));
+
+  wireUsulPangkatInput();
+}
+
+/* =========================================================
    DASHBOARD & REKAP PER PERIODE
    ========================================================= */
 const REPORT_DATE_FIELD_MAP = {
@@ -2366,7 +2715,14 @@ function renderCategoryReport(key,rebuild=false){
   const statusField = cat.fields.find(f=> f.id==='status' && f.type==='select');
   const headers=['Nama','NIP/Keterangan','Jabatan','Unit Kerja',...cat.fields.map(f=>f.label),'Catatan','Tanggal Input'];
   table.innerHTML='<tr>'+headers.map(h=>`<th>${h}</th>`).join('')+'</tr>'+
-    list.slice().sort((a,b)=>String(reportDateValue(b,cat)||'').localeCompare(String(reportDateValue(a,cat)||''))).map(r=>{
+    list.slice().sort((a,b)=>{
+      if(key==='usulpangkat'){
+        const rank = v=> v==='Di Tolak' ? 1 : 0; // Di Kirim / belum diproses di atas, Di Tolak di bawah
+        const d = rank(a.detail.statusUsul) - rank(b.detail.statusUsul);
+        if(d !== 0) return d;
+      }
+      return String(reportDateValue(b,cat)||'').localeCompare(String(reportDateValue(a,cat)||''));
+    }).map(r=>{
       const cells=[r.nama||'',r.nip||'-',r.jabatan||'-',r.unit||'-'];
       cat.fields.forEach(f=>{
         if(statusField && f.id===statusField.id){
@@ -2880,9 +3236,10 @@ async function init(){
   buildNav();
   mainArea.innerHTML =
     panelDashboardHTML() +
-    CATEGORIES.filter(c=> c.key!=='cuti' && !MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryHTML).join('') +
+    CATEGORIES.filter(c=> c.key!=='cuti' && c.key!=='usulpangkat' && !MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryHTML).join('') +
     CATEGORIES.filter(c=> MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryWithMonthlyRekapHTML).join('') +
     panelCutiHTML() +
+    panelUsulPangkatHTML() +
     panelRekapPegawaiHTML() +
     CATEGORIES.map(reportPanelHTML).join('') +
     panelPengaturanHTML();
@@ -2917,12 +3274,13 @@ async function init(){
   });
   document.getElementById('btnSimpanKeLaporan').addEventListener('click', handleSimpanKeLaporan);
 
-  CATEGORIES.filter(c=>c.key!=='cuti').forEach(cat=>{
+  CATEGORIES.filter(c=>c.key!=='cuti' && c.key!=='usulpangkat').forEach(cat=>{
     state.selectedEmployee[cat.key] = null;
     wireCategoryPanel(cat);
     if(MONTHLY_RECAP_KEYS.includes(cat.key)) wireMonthlyRekap(cat);
   });
   wireCutiPanel();
+  wireUsulPangkatPanel();
 
   wireDashboard();
   wireCategoryReports();
