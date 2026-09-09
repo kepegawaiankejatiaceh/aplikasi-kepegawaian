@@ -568,7 +568,7 @@ const HAS_STORAGE = HAS_APP_STORAGE || HAS_LOCAL_STORAGE;
 let state = {
   employees: [],       // {nip, nama, jabatan, unit}
   records: [],         // input records
-  settings: { webAppUrl:'', sheetPegawai:'Pegawai' },
+  settings: { webAppUrl:'', sheetPegawai:'Worksheet' },
   rawImport: null,     // { headers:[], rows:[[...]] } sementara sebelum mapping
   selectedEmployee: {}, // per-kategori pilihan pegawai sementara { [catKey]: employeeObj|null }
   bidangList: [],      // {nip, nama, bidang} - default bidang per pegawai (modul Cuti)
