@@ -574,7 +574,7 @@ let state = {
   bidangList: [],      // {nip, nama, bidang} - default bidang per pegawai (modul Cuti)
   sisaCutiList: [],    // {nip, nama, berjalan, tahunLalu, duaTahunLalu} - saldo sisa cuti (modul Cuti)
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
-  rekapPegawaiList: [], // snapshot Data Pegawai Termuat per bulan: {bulan, nip, nama, satker, jenisKelamin}
+  rekapPegawaiList: [], // rekap 9 kolom per bulan: {bulan, satker, laki, perempuan, jaksaLk, jaksaPr, tuLk, tuPr, total}
 };
 
 function genId(){ return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -637,8 +637,25 @@ let STANDARD_FIELDS = [
   { key:'nama', label:'Nama', guess:['nama','name'] },
   { key:'jabatan', label:'Jabatan', guess:['jabatan','posisi','position'] },
   { key:'unit', label:'Unit Kerja', guess:['unit','satker','bidang','bagian'] },
-  { key:'jenisKelamin', label:'Jenis Kelamin', guess:['jenis kelamin','kelamin','gender','jk'] },
+  { key:'golongan', label:'Golongan / Pangkat', guess:['golongan','pangkat','gol/pangkat','gol'] },
 ];
+
+/** Jenis kelamin dihitung dari karakter ke-15 NIP (bukan dari kolom terpisah) —
+ *  logika identik dengan Aplikasi Pencarian Pegawai (SIMKARI): karakter '2' atau
+ *  '4' berarti Perempuan, selain itu Laki-laki. NIP yang berformat "NIP / NRP"
+ *  diambil bagian sebelum tanda '/' saja. */
+function parseGenderFromNip(nipRaw){
+  const clean = (nipRaw||'').toString().replace(/'/g,'').replace(/\s/g,'').trim();
+  const nipOnly = clean.split('/')[0];
+  if(!nipOnly || nipOnly.length < 15) return 'L'; // default aman jika NIP bermasalah
+  const jkChar = nipOnly.charAt(14);
+  return (jkChar === '2' || jkChar === '4') ? 'P' : 'L';
+}
+/** Jaksa vs Tata Usaha ditentukan dari teks Golongan/Pangkat yang mengandung
+ *  kata "jaksa" — logika identik dengan SIMKARI (isJaksaGol). */
+function isJaksaGol(golRaw){
+  return (golRaw||'').toString().toLowerCase().includes('jaksa');
+}
 
 function guessColumn(header, guesses){
   const h = header.toLowerCase();
@@ -679,7 +696,7 @@ function confirmMapping(){
       nama: mapping.nama>=0 ? String(r[mapping.nama] ?? '').trim() : '',
       jabatan: mapping.jabatan>=0 ? String(r[mapping.jabatan] ?? '').trim() : '',
       unit: mapping.unit>=0 ? String(r[mapping.unit] ?? '').trim() : '',
-      jenisKelamin: mapping.jenisKelamin>=0 ? String(r[mapping.jenisKelamin] ?? '').trim() : '',
+      golongan: mapping.golongan>=0 ? String(r[mapping.golongan] ?? '').trim() : '',
     }))
     .filter(e=> e.nama);
   state.employees = employees;
@@ -701,8 +718,8 @@ function renderEmployeeSummary(){
 function renderEmployeeTable(list){
   const table = document.getElementById('employeeTable');
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data.</td></tr>'; return; }
-  table.innerHTML = '<tr><th>NIP</th><th>Nama</th><th>Jabatan</th><th>Unit Kerja</th><th>Jenis Kelamin</th></tr>' +
-    list.map(e=>`<tr><td>${e.nip||'-'}</td><td>${e.nama}</td><td>${e.jabatan||'-'}</td><td>${e.unit||'-'}</td><td>${e.jenisKelamin||'-'}</td></tr>`).join('');
+  table.innerHTML = '<tr><th>NIP</th><th>Nama</th><th>Jabatan</th><th>Unit Kerja</th><th>Golongan/Pangkat</th></tr>' +
+    list.map(e=>`<tr><td>${e.nip||'-'}</td><td>${e.nama}</td><td>${e.jabatan||'-'}</td><td>${e.unit||'-'}</td><td>${e.golongan||'-'}</td></tr>`).join('');
 }
 
 function showBanner(elId, type, msg){
@@ -824,6 +841,26 @@ async function fetchRekapPegawaiFromSheets(){
     return true;
   }catch(err){ return false; }
 }
+/** Menghitung rekap 9 kolom (Satuan Kerja, Laki-laki, Perempuan, Jaksa Lk,
+ *  Jaksa Pr, TU Lk, TU Pr, Total) dari Data Pegawai Termuat saat ini — memakai
+ *  logika Jenis Kelamin (dari NIP) & Jaksa/TU (dari Golongan) yang identik
+ *  dengan Aplikasi Pencarian Pegawai (SIMKARI). */
+function computeRekapPegawaiPerSatker(employees){
+  const rekap = {};
+  employees.forEach(e=>{
+    const satker = e.unit || 'Lainnya';
+    if(!rekap[satker]) rekap[satker] = { laki:0, perempuan:0, jaksaLk:0, jaksaPr:0, tuLk:0, tuPr:0 };
+    const jk = parseGenderFromNip(e.nip);
+    const jaksa = isJaksaGol(e.golongan);
+    if(jk === 'L'){ rekap[satker].laki++; if(jaksa) rekap[satker].jaksaLk++; else rekap[satker].tuLk++; }
+    else { rekap[satker].perempuan++; if(jaksa) rekap[satker].jaksaPr++; else rekap[satker].tuPr++; }
+  });
+  return Object.keys(rekap).sort().map(satker=>{
+    const r = rekap[satker];
+    return { satker, laki:r.laki, perempuan:r.perempuan, jaksaLk:r.jaksaLk, jaksaPr:r.jaksaPr, tuLk:r.tuLk, tuPr:r.tuPr, total:r.laki+r.perempuan };
+  });
+}
+
 async function handleSimpanKeLaporan(){
   const bulan = document.getElementById('snapshotBulanPegawai').value; // format "YYYY-MM"
   if(!bulan){ showBanner('snapshotBanner','warn','Pilih bulan snapshot terlebih dahulu.'); return; }
@@ -831,13 +868,14 @@ async function handleSimpanKeLaporan(){
   if(!state.settings.webAppUrl){ showBanner('snapshotBanner','warn','URL Web App belum diatur di atas.'); return; }
   const btn = document.getElementById('btnSimpanKeLaporan');
   btn.disabled = true;
-  showBanner('snapshotBanner','info','Menyimpan snapshot pegawai ke Google Sheets...');
-  const items = state.employees.map(e=> ({ bulan, nip:e.nip, nama:e.nama, satker:e.unit||'', jenisKelamin:e.jenisKelamin||'' }));
-  const result = await apiPost({ type:'rekapPegawai', items });
+  showBanner('snapshotBanner','info','Menyimpan rekap pegawai ke Google Sheets...');
+  const items = computeRekapPegawaiPerSatker(state.employees);
+  const result = await apiPost({ type:'rekapPegawai', bulan, items });
   btn.disabled = false;
   if(result.error){ showBanner('snapshotBanner','warn','Gagal: ' + result.error); return; }
-  showBanner('snapshotBanner','ok', `Snapshot ${items.length} pegawai untuk ${formatBulanID(bulan)} berhasil disimpan ke Rekap Pegawai.`);
+  showBanner('snapshotBanner','ok', `Rekap ${items.length} satuan kerja untuk ${formatBulanID(bulan)} berhasil disimpan (menggantikan data bulan yang sama jika sudah ada).`);
   await fetchRekapPegawaiFromSheets();
+  renderRekapPegawai(true);
 }
 async function pushRecordToSheets(record){
   const result = await apiPost({ record });
@@ -959,7 +997,7 @@ async function autoLoadEmployeesIfConfigured(){
         nama: mapping.nama>=0 ? String(r[mapping.nama] ?? '').trim() : '',
         jabatan: mapping.jabatan>=0 ? String(r[mapping.jabatan] ?? '').trim() : '',
         unit: mapping.unit>=0 ? String(r[mapping.unit] ?? '').trim() : '',
-        jenisKelamin: mapping.jenisKelamin>=0 ? String(r[mapping.jenisKelamin] ?? '').trim() : '',
+        golongan: mapping.golongan>=0 ? String(r[mapping.golongan] ?? '').trim() : '',
       }))
       .filter(e=> e.nama);
     state.employees = employees;
@@ -2387,7 +2425,7 @@ function panelRekapPegawaiHTML(){
   <section class="panel" id="panel-report-pegawai">
     <div class="card">
       <h2>Rekap Pegawai</h2>
-      <p class="hint">Rekapitulasi Jenis Kelamin per Satker, diambil dari data pegawai (Aplikasi Pencarian Pegawai) yang disimpan sebagai snapshot bulanan lewat Pengaturan &rarr; "Simpan Ke Laporan". Untuk Triwulan/Semester, ditampilkan snapshot bulan terakhir yang tersedia pada periode tersebut.</p>
+      <p class="hint">Rekapitulasi Jenis Kelamin (Laki-laki/Perempuan) dan Jaksa/TU per Satuan Kerja — bentuk dan logikanya sama persis dengan Rekap Jenis Kelamin pada Aplikasi Pencarian Pegawai. Diambil dari rekap yang disimpan lewat Pengaturan &rarr; "Simpan Ke Laporan". Untuk Triwulan/Semester, ditampilkan rekap bulan terakhir yang tersedia pada periode tersebut.</p>
       <div class="report-toolbar">
         <div class="field">
           <label>Periode Rekap</label>
@@ -2436,31 +2474,20 @@ function renderRekapPegawai(rebuild){
   const targetMonth = groupToLatestMonth[selectedGroup];
 
   if(!targetMonth){
-    table.innerHTML = '<tr><td class="empty-state">Belum ada data snapshot. Simpan Data Pegawai Termuat lewat Pengaturan &rarr; "Simpan Ke Laporan" terlebih dahulu.</td></tr>';
+    table.innerHTML = '<tr><td class="empty-state">Belum ada data rekap. Simpan Data Pegawai Termuat lewat Pengaturan &rarr; "Simpan Ke Laporan" terlebih dahulu.</td></tr>';
     metaEl.textContent = '';
     return;
   }
-  metaEl.textContent = `Menampilkan snapshot bulan ${formatBulanID(targetMonth)}`;
+  metaEl.textContent = `Menampilkan rekap bulan ${formatBulanID(targetMonth)}`;
 
-  const rows = state.rekapPegawaiList.filter(r=> r.bulan === targetMonth);
-  const satkerMap = {};
-  rows.forEach(r=>{
-    const satker = r.satker || '(Tanpa Satker)';
-    if(!satkerMap[satker]) satkerMap[satker] = { L:0, P:0, lain:0 };
-    const jk = String(r.jenisKelamin||'').trim().toUpperCase();
-    if(jk.startsWith('L')) satkerMap[satker].L++;
-    else if(jk.startsWith('P')) satkerMap[satker].P++;
-    else satkerMap[satker].lain++;
-  });
-  const satkerNames = Object.keys(satkerMap).sort();
-  let totalL=0, totalP=0, totalLain=0;
-  table.innerHTML = '<tr><th>Satker</th><th>Laki-laki</th><th>Perempuan</th><th>Tidak Diketahui</th><th>Total</th></tr>' +
-    satkerNames.map(s=>{
-      const c = satkerMap[s];
-      totalL+=c.L; totalP+=c.P; totalLain+=c.lain;
-      return `<tr><td>${s}</td><td>${c.L}</td><td>${c.P}</td><td>${c.lain}</td><td>${c.L+c.P+c.lain}</td></tr>`;
+  const rows = state.rekapPegawaiList.filter(r=> r.bulan === targetMonth).sort((a,b)=> String(a.satker).localeCompare(String(b.satker)));
+  const sum = { laki:0, perempuan:0, jaksaLk:0, jaksaPr:0, tuLk:0, tuPr:0, total:0 };
+  table.innerHTML = '<tr><th>No</th><th>Satuan Kerja</th><th>Laki-laki</th><th>Perempuan</th><th>Jaksa Lk</th><th>Jaksa Pr</th><th>TU Lk</th><th>TU Pr</th><th>Total</th></tr>' +
+    rows.map((r,i)=>{
+      sum.laki+=r.laki; sum.perempuan+=r.perempuan; sum.jaksaLk+=r.jaksaLk; sum.jaksaPr+=r.jaksaPr; sum.tuLk+=r.tuLk; sum.tuPr+=r.tuPr; sum.total+=r.total;
+      return `<tr><td>${i+1}</td><td style="text-align:left">${r.satker}</td><td>${r.laki}</td><td>${r.perempuan}</td><td>${r.jaksaLk}</td><td>${r.jaksaPr}</td><td>${r.tuLk}</td><td>${r.tuPr}</td><td>${r.total}</td></tr>`;
     }).join('') +
-    `<tr style="font-weight:600;"><td>Total</td><td>${totalL}</td><td>${totalP}</td><td>${totalLain}</td><td>${totalL+totalP+totalLain}</td></tr>`;
+    `<tr style="font-weight:600;"><td colspan="2">TOTAL KESELURUHAN</td><td>${sum.laki}</td><td>${sum.perempuan}</td><td>${sum.jaksaLk}</td><td>${sum.jaksaPr}</td><td>${sum.tuLk}</td><td>${sum.tuPr}</td><td>${sum.total}</td></tr>`;
 }
 function wireRekapPegawaiPanel(){
   document.getElementById('rekapPegawaiType').addEventListener('change', ()=> renderRekapPegawai(true));
@@ -2468,7 +2495,7 @@ function wireRekapPegawaiPanel(){
   document.getElementById('btnExportPegawaiExcel').addEventListener('click', ()=>
     exportTableToExcel('rekapPegawaiTable', `Rekap_Pegawai_${todayStamp()}.xlsx`, 'Rekap Pegawai'));
   document.getElementById('btnExportPegawaiPDF').addEventListener('click', ()=>
-    exportTableToPDF('rekapPegawaiTable', `Rekap_Pegawai_${todayStamp()}.pdf`, 'Rekap Pegawai (Jenis Kelamin per Satker)'));
+    exportTableToPDF('rekapPegawaiTable', `Rekap_Pegawai_${todayStamp()}.pdf`, 'Rekap Pegawai (Jenis Kelamin & Jaksa/TU per Satker)'));
 }
 
 function dashboardPeriodRecords(type,year,period,acc){
