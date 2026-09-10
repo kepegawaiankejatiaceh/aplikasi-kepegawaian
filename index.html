@@ -562,6 +562,52 @@ const CATEGORIES = [
     { id:'periode', label:'Periode (Bulan)', type:'month' },
     { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
   ]},
+  { key:'realisasipangkat', label:'Realisasi Kenaikan Pangkat', sheet:'Realisasi Kenaikan Pangkat', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'nomorSk', label:'Nomor SK', type:'text' },
+    { id:'tmt', label:'TMT Pangkat Baru', type:'date' },
+  ]},
+  { key:'pelantikan', label:'Pelantikan', sheet:'Pelantikan', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'jenisPelantikan', label:'Jenis Pelantikan', type:'select', options:['Eselon II','Eselon III','Eselon IV','Eselon V','Jabatan Fungsional','Satgas','CPNS menjadi PNS'] },
+    { id:'nomorSk', label:'Nomor SK', type:'text' },
+  ]},
+  { key:'satyalencana', label:'Satya Lencana', sheet:'Satya Lencana', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'jenisPenghargaan', label:'Masa Kerja', type:'select', options:['10 Tahun','20 Tahun','30 Tahun'] },
+    { id:'nomorSk', label:'Nomor SK', type:'text' },
+  ]},
+  { key:'rencanamutasilokal', label:'Rencana Mutasi Lokal', sheet:'Rencana Mutasi Lokal', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'rencanaUnit', label:'Rencana Unit Tujuan', type:'text' },
+  ]},
+  { key:'usulmutasipromosi', label:'Usul Mutasi/Promosi Pegawai', sheet:'Usul Mutasi Promosi', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'jenisUsul', label:'Jenis Usul', type:'select', options:['Mutasi','Promosi'] },
+    { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
+  ]},
+  { key:'usulpensiun', label:'Usul Pensiun', sheet:'Usul Pensiun', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
+  ]},
+  { key:'izinpendidikan', label:'Izin Melanjutkan Pendidikan', sheet:'Izin Melanjutkan Pendidikan', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'jenjang', label:'Jenjang', type:'select', options:['D3','S1','S2','S3'] },
+    { id:'institusi', label:'Institusi', type:'text', suggest:true },
+  ]},
+  { key:'penerimabeasiswa', label:'Penerima Beasiswa', sheet:'Penerima Beasiswa', fields:[
+    { id:'tglInput', label:'Tanggal Input', type:'date' },
+    { id:'periode', label:'Periode (Bulan)', type:'month' },
+    { id:'jenjang', label:'Jenjang', type:'select', options:['S2','S3'] },
+    { id:'sumberBeasiswa', label:'Sumber Beasiswa', type:'text', suggest:true },
+  ]},
 ];
 
 /* =========================================================
@@ -572,6 +618,15 @@ const CATEGORIES = [
                          (data tersimpan permanen di browser tsb, tidak perlu isi ulang)
    3) memori sementara -> cadangan terakhir jika keduanya diblokir browser
    ========================================================= */
+/** URL Web App (Google Apps Script) default yang otomatis dipakai oleh SEMUA
+ *  pengguna baru — tidak perlu 2 versi HTML terpisah untuk admin/operator.
+ *  Cukup satu file HTML ini untuk semua orang. Admin cukup mengisi URL Web App
+ *  TERBARU di sini SEKALI setiap kali membuat *deployment baru* (bukan "New
+ *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
+ *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
+ *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxqxaQfUc6qwcZ6Pox6Ap8YHiO88UmP5yosdTC8w1OasVwGxY4Hh2CD6aDejVFz_5Qiog/exec';
+
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
   try { const k='__test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }
@@ -625,6 +680,7 @@ let state = {
   usulPangkatSelected: null, // pegawai terpilih pada form Input Pegawai (Usul Pangkat)
   usulPangkatBerkasRows: [''], // baris dropdown Kekurangan Berkas yang sedang diisi
   rekapPegawaiList: [], // rekap 9 kolom per bulan: {bulan, satker, laki, perempuan, jaksaLk, jaksaPr, tuLk, tuPr, total}
+  config: {}, // konfigurasi kecil: jumlah Jabatan Struktural & nama Satker Kejati Aceh
 };
 
 function genId(){ return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -891,6 +947,56 @@ async function fetchRekapPegawaiFromSheets(){
     return true;
   }catch(err){ return false; }
 }
+/** Konfigurasi kecil (jumlah Jabatan Struktural & nama Satker yang mewakili
+ *  Kejati Aceh) yang dipakai pada Ringkasan Kategori / Laporan Kinerja.
+ *  Disimpan sebagai key-value di sheet "Konfigurasi" (dibagi ke semua
+ *  pengguna, bukan hanya tersimpan lokal di satu browser). */
+const CONFIG_KEYS = ['jabatanEselonII','jabatanEselonIIIAsisten','jabatanEselonIIIKtu','jabatanEselonIV','jabatanEselonV','satkerKejati'];
+async function fetchConfigFromSheets(){
+  const url = state.settings.webAppUrl;
+  if(!url) return false;
+  try{
+    const res = await fetch(`${url}?action=getConfig`);
+    const json = await res.json();
+    if(json.error) return false;
+    state.config = json.config || {};
+    Store.set('config', state.config);
+    return true;
+  }catch(err){ return false; }
+}
+async function pushConfigToSheets(items){
+  const result = await apiPost({ type:'config', items });
+  return !result.error;
+}
+function populateConfigFields(){
+  const map = {
+    cfgEselonII:'jabatanEselonII', cfgEselonIIIAsisten:'jabatanEselonIIIAsisten',
+    cfgEselonIIIKtu:'jabatanEselonIIIKtu', cfgEselonIV:'jabatanEselonIV',
+    cfgEselonV:'jabatanEselonV', cfgSatkerKejati:'satkerKejati',
+  };
+  Object.keys(map).forEach(elId=>{
+    const el = document.getElementById(elId);
+    if(el && state.config[map[elId]] != null) el.value = state.config[map[elId]];
+  });
+}
+async function handleSaveConfig(){
+  if(!state.settings.webAppUrl){ showBanner('configBanner','warn','URL Web App belum diatur di atas.'); return; }
+  const items = [
+    { key:'jabatanEselonII', value: document.getElementById('cfgEselonII').value || 0 },
+    { key:'jabatanEselonIIIAsisten', value: document.getElementById('cfgEselonIIIAsisten').value || 0 },
+    { key:'jabatanEselonIIIKtu', value: document.getElementById('cfgEselonIIIKtu').value || 0 },
+    { key:'jabatanEselonIV', value: document.getElementById('cfgEselonIV').value || 0 },
+    { key:'jabatanEselonV', value: document.getElementById('cfgEselonV').value || 0 },
+    { key:'satkerKejati', value: document.getElementById('cfgSatkerKejati').value.trim() },
+  ];
+  showBanner('configBanner','info','Menyimpan konfigurasi...');
+  const ok = await pushConfigToSheets(items);
+  if(!ok){ showBanner('configBanner','warn','Gagal menyimpan. Periksa koneksi internet Anda.'); return; }
+  items.forEach(it=> state.config[it.key] = it.value);
+  Store.set('config', state.config);
+  showBanner('configBanner','ok','Konfigurasi tersimpan.');
+  renderDashboard();
+}
 /** Menghitung rekap 9 kolom (Satuan Kerja, Laki-laki, Perempuan, Jaksa Lk,
  *  Jaksa Pr, TU Lk, TU Pr, Total) dari Data Pegawai Termuat saat ini — memakai
  *  logika Jenis Kelamin (dari NIP) & Jaksa/TU (dari Golongan) yang identik
@@ -947,6 +1053,7 @@ async function refreshFromSheetsAndRender(){
     fetchBidangFromSheets(),
     fetchSisaCutiFromSheets(),
     fetchRekapPegawaiFromSheets(),
+    fetchConfigFromSheets(),
   ]);
   updateSyncIndicator(okRecords ? 'ok' : 'error');
   rerenderVisibleData();
@@ -1081,7 +1188,7 @@ function fieldHTML(catKey, f){
   return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"></div>`;
 }
 
-const SUGGESTION_FIELD_IDS = ['asalInstansi','namaDiklat','penyelenggara','tempat','unitPenempatan','pejabatPenetap','pejabat','alasan','pembimbing','jenisHukuman','pelanggaran'];
+const SUGGESTION_FIELD_IDS = ['asalInstansi','namaDiklat','penyelenggara','tempat','unitPenempatan','pejabatPenetap','pejabat','alasan','pembimbing','jenisHukuman','pelanggaran','institusi','sumberBeasiswa'];
 function populateSuggestionDatalists(){
   SUGGESTION_FIELD_IDS.forEach(fid=>{
     const dl = document.getElementById(`dl_${fid}`);
@@ -2567,6 +2674,14 @@ const REPORT_DATE_FIELD_OPTIONS_MAP = {
   penerimaancpns: ['tglInput','periode'],
   penerimaanpppk: ['tglInput','periode'],
   usulcpnskepns: ['tglInput','periode'],
+  realisasipangkat: ['tglInput','periode'],
+  pelantikan: ['tglInput','periode'],
+  satyalencana: ['tglInput','periode'],
+  rencanamutasilokal: ['tglInput','periode'],
+  usulmutasipromosi: ['tglInput','periode'],
+  usulpensiun: ['tglInput','periode'],
+  izinpendidikan: ['tglInput','periode'],
+  penerimabeasiswa: ['tglInput','periode'],
 };
 
 function reportDateFieldOptions(cat){ return REPORT_DATE_FIELD_OPTIONS_MAP[cat.key] || null; }
@@ -2962,7 +3077,7 @@ function panelDashboardHTML(){
         <div class="dashboard-chart-card"><div class="chart-title">Tren Bulanan</div><div class="chart-note">Pergerakan seluruh kategori berdasarkan tanggal acuan masing-masing.</div><div id="dashTrendChart"></div></div>
         <div class="dashboard-chart-card full"><div class="chart-title">Grafik per Kategori</div><div class="chart-note">Setiap grafik menggunakan tanggal acuan kategori: Cuti = Tanggal Mulai; Pernikahan/Perceraian/Keluar Negeri = Tanggal Persetujuan Pimpinan; Diklat/Magang = Tanggal Mulai; Uji Kompetensi/Ujian Dinas = Tanggal Ujian; Hukuman Disiplin = Tanggal SK.</div><div class="category-chart-grid" id="dashCategoryMiniCharts"></div></div>
       </div>
-      <div class="dashboard-table-card"><div class="chart-title">Ringkasan Kategori</div><div class="chart-note">Jumlah dan rincian pilihan/status yang tersedia pada periode terpilih.</div><div class="preview-wrap"><table class="data-table" id="dashboardTable"></table></div></div>
+      <div class="dashboard-table-card"><div class="chart-title">Ringkasan Kategori</div><div class="chart-note">Rekap dalam format Laporan Kinerja: Jabatan Struktural, Jumlah Pegawai (Se Aceh &amp; Kejati Aceh), dan seluruh kategori transaksi pada periode terpilih.</div><div class="preview-wrap"><table class="data-table" id="dashboardTable"></table></div><div class="btn-row"><button class="btn secondary" id="btnExportDashExcel">Ekspor Excel</button><button class="btn secondary" id="btnExportDashPDF">Ekspor PDF</button></div></div>
     </div>
   </section>`;
 }
@@ -2994,12 +3109,133 @@ function renderDashboard(){
     const n=counts[CATEGORIES.indexOf(cat)];
     return `<div class="category-chart"><div class="cat-name">${dashboardEsc(cat.label)}</div>${dashboardMiniBarSVG(visible)}<div class="cat-total">${n} data pada ${dashboardEsc(label)}</div></div>`;
   }).join('');
-  const byCat=CATEGORIES.map(cat=>{
-    const rows=list.filter(r=>r.kategoriKey===cat.key),statusField=cat.fields.find(f=>f.type==='select');
-    const detail=statusField?Array.from(new Set(rows.map(r=>r.detail?.[statusField.id]).filter(Boolean))).map(v=>`${dashboardEsc(v)}: ${rows.filter(r=>r.detail?.[statusField.id]===v).length}`).join(' · '):'-';
-    return [cat.label,rows.length,detail];
-  });
-  document.getElementById('dashboardTable').innerHTML='<tr><th>Kategori</th><th>Jumlah</th><th>Rincian Status/Pilihan</th></tr>'+byCat.map(r=>`<tr><td>${dashboardEsc(r[0])}</td><td>${r[1]}</td><td>${r[2]}</td></tr>`).join('');
+  renderLaporanKinerjaTable(type.value,y,p,a);
+}
+
+/* =========================================================
+   LAPORAN KINERJA (Ringkasan Kategori) — mengikuti format
+   "Laporan Kinerja Asisten Pembinaan" yang dipakai kantor.
+   ========================================================= */
+function countCat(key,type,year,period,acc){
+  const cat = CATEGORIES.find(c=>c.key===key);
+  if(!cat) return 0;
+  return filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc).length;
+}
+function countCatWhere(key,type,year,period,acc,fieldId,value){
+  const cat = CATEGORIES.find(c=>c.key===key);
+  if(!cat) return 0;
+  return filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc)
+    .filter(r=> r.detail?.[fieldId] === value).length;
+}
+function catRecordsForPeriod(key,type,year,period,acc){
+  const cat = CATEGORIES.find(c=>c.key===key);
+  if(!cat) return [];
+  return filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc);
+}
+/** Memilih data Rekap Pegawai (9 kolom) yang mewakili periode terpilih:
+ *  bulan snapshot TERBARU yang tersedia di dalam rentang periode tersebut
+ *  (sesuai sifatnya sebagai potret/snapshot, bukan data transaksi yang diakumulasi). */
+function rekapPegawaiForPeriod(type,year,period,acc){
+  const maxMonth = periodInfo(type,year,period).maxMonth;
+  const minMonth = acc ? 1 : (type==='monthly'?maxMonth:(maxMonth-(type==='quarterly'?2:5)));
+  const monthsInRange = Array.from(new Set(state.rekapPegawaiList.map(r=>r.bulan))).filter(b=>{
+    const [y,m] = b.split('-').map(Number);
+    return y===year && m>=minMonth && m<=maxMonth;
+  }).sort().reverse();
+  if(!monthsInRange.length) return { bulan:null, rows:[] };
+  const targetMonth = monthsInRange[0];
+  return { bulan: targetMonth, rows: state.rekapPegawaiList.filter(r=>r.bulan===targetMonth) };
+}
+function sumRekapPegawai(rows){
+  return rows.reduce((s,r)=>({
+    laki:s.laki+(r.laki||0), perempuan:s.perempuan+(r.perempuan||0),
+    jaksaLk:s.jaksaLk+(r.jaksaLk||0), jaksaPr:s.jaksaPr+(r.jaksaPr||0),
+    tuLk:s.tuLk+(r.tuLk||0), tuPr:s.tuPr+(r.tuPr||0), total:s.total+(r.total||0),
+  }), {laki:0,perempuan:0,jaksaLk:0,jaksaPr:0,tuLk:0,tuPr:0,total:0});
+}
+function jaksaTuText(sum){
+  const jaksaTotal = sum.jaksaLk+sum.jaksaPr, tuTotal = sum.tuLk+sum.tuPr;
+  return `Jaksa: ${jaksaTotal} org (L=${sum.jaksaLk}, P=${sum.jaksaPr}) · TU: ${tuTotal} org (L=${sum.tuLk}, P=${sum.tuPr})`;
+}
+function computeLaporanKinerja(type,year,period,acc){
+  const items = [];
+  let no = 0;
+  const letter = ()=> String.fromCharCode(97 + (no++)); // a, b, c, ...
+  const push = (label, value, note)=> items.push({ letter: letter(), label, value, note: note||'' });
+  const pushSub = (label, value)=> items.push({ letter:'', label:'&nbsp;&nbsp;'+label, value, note:'', sub:true });
+
+  const cfg = state.config || {};
+  const jabStrukturalTotal = ['jabatanEselonII','jabatanEselonIIIAsisten','jabatanEselonIIIKtu','jabatanEselonIV','jabatanEselonV']
+    .reduce((s,k)=> s + (parseInt(cfg[k],10)||0), 0);
+  push('Jabatan Struktural', jabStrukturalTotal ? `${jabStrukturalTotal} Jabatan` : '-');
+  pushSub('Eselon II Kajati/Wakajati', `${parseInt(cfg.jabatanEselonII,10)||0} Jabatan`);
+  pushSub('Eselon III Asisten', `${parseInt(cfg.jabatanEselonIIIAsisten,10)||0} Jabatan`);
+  pushSub('Eselon III KTU/Koordinator', `${parseInt(cfg.jabatanEselonIIIKtu,10)||0} Jabatan`);
+  pushSub('Eselon IV', `${parseInt(cfg.jabatanEselonIV,10)||0} Jabatan`);
+  pushSub('Eselon V', `${parseInt(cfg.jabatanEselonV,10)||0} Jabatan`);
+
+  const pegawaiPeriode = rekapPegawaiForPeriod(type,year,period,acc);
+  const seAceh = sumRekapPegawai(pegawaiPeriode.rows);
+  const satkerKejatiName = (cfg.satkerKejati||'').trim().toLowerCase();
+  const kejatiRows = satkerKejatiName ? pegawaiPeriode.rows.filter(r=> String(r.satker||'').trim().toLowerCase()===satkerKejatiName) : [];
+  const kejati = sumRekapPegawai(kejatiRows);
+  const snapshotNote = pegawaiPeriode.bulan ? `snapshot ${formatBulanID(pegawaiPeriode.bulan)}` : 'belum ada data Rekap Pegawai';
+  push('Jumlah Pegawai Kejaksaan Se Aceh', `${seAceh.total} org (${snapshotNote})`);
+  pushSub(jaksaTuText(seAceh), '');
+  push('Jumlah Pegawai Jaksa/Tata Usaha pada Kejati Aceh', satkerKejatiName ? `${kejati.total} org (${snapshotNote})` : 'Nama Satker Kejati belum diatur di Pengaturan');
+  if(satkerKejatiName) pushSub(jaksaTuText(kejati), '');
+
+  const diklatRows = catRecordsForPeriod('diklat',type,year,period,acc);
+  push('Pendidikan dan Pelatihan', `${diklatRows.length} Orang`);
+  const diklatByName = {};
+  diklatRows.forEach(r=>{ const nm = r.detail?.namaDiklat || '(Tanpa nama diklat)'; diklatByName[nm] = (diklatByName[nm]||0)+1; });
+  Object.keys(diklatByName).forEach(nm=> pushSub(nm, `${diklatByName[nm]} orang`));
+
+  push('Usul CPNS Menjadi PNS', `${countCat('usulcpnskepns',type,year,period,acc)} orang`);
+  push('Usul Kenaikan Pangkat', `${countCat('usulpangkat',type,year,period,acc)} orang`);
+  push('Realisasi Kenaikan Pangkat', `${countCat('realisasipangkat',type,year,period,acc)} orang`);
+  push('Pelantikan Pejabat Eselon II', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon II')} Kali`);
+  push('Pelantikan Pejabat Eselon III', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon III')} Kali`);
+  push('Pelantikan Pejabat Eselon IV', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon IV')} Kali`);
+  push('Pelantikan Pejabat Eselon V', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon V')} Kali`);
+  push('Pelantikan Jabatan Fungsional', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Jabatan Fungsional')} Kali`);
+  push('Pelantikan Satgas', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Satgas')} Kali`);
+  push('Pelantikan CPNS menjadi PNS', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','CPNS menjadi PNS')} Kali`);
+  push('Satya Lencana', `${countCat('satyalencana',type,year,period,acc)} orang`);
+  push('Cuti', `${countCat('cuti',type,year,period,acc)} orang`);
+  push('Rencana Mutasi Lokal', `${countCat('rencanamutasilokal',type,year,period,acc)} Kali`);
+  push('Mutasi Lokal', `${countCat('mutasilokal',type,year,period,acc)} orang`);
+  push('Kenaikan Gaji Berkala', `${countCat('kgb',type,year,period,acc)} orang`);
+  push('Usul Mutasi/Promosi Pegawai', `${countCat('usulmutasipromosi',type,year,period,acc)} orang`);
+  push('Usul Pensiun', `${countCat('usulpensiun',type,year,period,acc)} orang`);
+  push('Izin Perkawinan', `${countCat('pernikahan',type,year,period,acc)} orang`);
+  push('Izin Perceraian', `${countCat('perceraian',type,year,period,acc)} orang`);
+  push('Izin Keluar Negeri', `${countCat('keluarnegeri',type,year,period,acc)} orang`);
+  push('Izin Melanjutkan Pendidikan', `${countCat('izinpendidikan',type,year,period,acc)} orang`);
+  push('Menerima Siswa Magang', `${countCat('magang',type,year,period,acc)} orang`);
+  push('Penerima Beasiswa', `${countCat('penerimabeasiswa',type,year,period,acc)} orang`);
+
+  return items;
+}
+function renderLaporanKinerjaTable(type,year,period,acc){
+  const items = computeLaporanKinerja(type,year,period,acc);
+  const table = document.getElementById('dashboardTable');
+  table.innerHTML = '<tr><th style="width:32px;">No</th><th>Uraian</th><th style="width:260px;">Keterangan</th></tr>' +
+    items.map(it=> it.sub
+      ? `<tr><td></td><td style="color:var(--ink-soft);">${it.label}</td><td>${it.value}</td></tr>`
+      : `<tr><td>${it.letter}.</td><td><strong>${it.label}</strong></td><td>${it.value}</td></tr>`
+    ).join('');
+}
+function exportLaporanKinerjaExcel(type,year,period,acc){
+  const items = computeLaporanKinerja(type,year,period,acc);
+  const aoa = [['No','Uraian','Keterangan'], ...items.map(it=> [it.sub?'':it.letter+'.', it.sub? '  '+it.label.replace(/&nbsp;/g,''): it.label, it.value])];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Laporan Kinerja');
+  XLSX.writeFile(wb, `Laporan_Kinerja_${todayStamp()}.xlsx`);
+}
+function exportLaporanKinerjaPDF(type,year,period,acc){
+  exportTableToPDF('dashboardTable', `Laporan_Kinerja_${todayStamp()}.pdf`, `Laporan Kinerja — ${periodRangeText(type,year,period,acc)}`);
 }
 
 function wireDashboard(){
@@ -3008,6 +3244,12 @@ function wireDashboard(){
   year.innerHTML=years.map(y=>`<option value="${y}" ${y===new Date().getFullYear()?'selected':''}>${y}</option>`).join('');
   type.addEventListener('change',()=>{period.innerHTML=getPeriodOptions(type.value);period.value=type.value==='monthly'?String(new Date().getMonth()+1):'1';renderDashboard();});
   year.addEventListener('change',renderDashboard); period.addEventListener('change',renderDashboard); acc.addEventListener('change',renderDashboard);
+  document.getElementById('btnExportDashExcel').addEventListener('click', ()=>{
+    exportLaporanKinerjaExcel(type.value, parseInt(year.value,10), parseInt(period.value,10), acc.checked);
+  });
+  document.getElementById('btnExportDashPDF').addEventListener('click', ()=>{
+    exportLaporanKinerjaPDF(type.value, parseInt(year.value,10), parseInt(period.value,10), acc.checked);
+  });
   renderDashboard();
 }
 
@@ -3222,6 +3464,20 @@ function panelPengaturanHTML(){
       </div>
     </div>
     <div class="card">
+      <h2>Konfigurasi Laporan Kinerja</h2>
+      <p class="hint">Angka Jabatan Struktural bersifat tetap/jarang berubah, jadi diisi manual di sini (bukan hasil hitung otomatis dari data transaksi). Nama Satker dipakai untuk memisahkan "Jumlah Pegawai Se Aceh" (seluruh satker) dari "Jumlah Pegawai pada Kejati Aceh" (satu satker saja) pada Ringkasan Kategori di Dashboard.</p>
+      <div class="field-grid">
+        <div class="field"><label>Eselon II (Kajati/Wakajati)</label><input type="number" id="cfgEselonII"></div>
+        <div class="field"><label>Eselon III (Asisten)</label><input type="number" id="cfgEselonIIIAsisten"></div>
+        <div class="field"><label>Eselon III (KTU/Koordinator)</label><input type="number" id="cfgEselonIIIKtu"></div>
+        <div class="field"><label>Eselon IV</label><input type="number" id="cfgEselonIV"></div>
+        <div class="field"><label>Eselon V</label><input type="number" id="cfgEselonV"></div>
+        <div class="field full"><label>Nama Satker yang mewakili "Kejati Aceh" (harus sama persis dengan nilai Unit Kerja/Satker pada data pegawai)</label><input type="text" id="cfgSatkerKejati" placeholder="mis. KEJAKSAAN TINGGI ACEH"></div>
+      </div>
+      <div class="btn-row"><button class="btn accent" id="btnSaveConfig">Simpan Konfigurasi</button></div>
+      <div id="configBanner"></div>
+    </div>
+    <div class="card">
       <h2>Tentang Mode Realtime</h2>
       <p class="hint">Setiap kali Anda menyimpan, mengubah status, atau menghapus data, aplikasi langsung mengirimkannya ke Google Sheets — bukan lagi disimpan lokal lalu dikirim manual. Setiap kali aplikasi dibuka, berpindah tab, atau kembali aktif setelah beberapa saat, data terbaru otomatis ditarik ulang dari Sheets, sehingga semua orang yang mengakses ${'`'}aplikasi-kepegawaian.html${'`'} melihat data yang sama.</p>
       <p class="hint"><strong>Konsekuensi:</strong> aplikasi membutuhkan koneksi internet setiap saat untuk menyimpan atau membaca data. Jika koneksi terputus saat menyimpan, aplikasi akan memberi tahu dan data tidak akan tersimpan setengah-setengah. URL Web App sendiri tetap tersimpan di penyimpanan browser ini (${HAS_APP_STORAGE? 'penyimpanan aplikasi Claude' : (HAS_LOCAL_STORAGE? 'localStorage browser ini' : 'tidak tersimpan permanen di browser ini')}), jadi tidak perlu diisi ulang setiap membuka aplikasi di perangkat/browser yang sama.</p>
@@ -3249,14 +3505,21 @@ async function init(){
   populateSuggestionDatalists();
   populateManualSuggestionDatalists();
   state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Sheet1' });
+  if(!state.settings.webAppUrl && DEFAULT_WEB_APP_URL && DEFAULT_WEB_APP_URL.startsWith('http')){
+    state.settings.webAppUrl = DEFAULT_WEB_APP_URL;
+    Store.set('settings', state.settings);
+  }
   state.bidangList = await Store.get('bidangList', []);
   state.sisaCutiList = await Store.get('sisaCutiList', []);
   state.rekapPegawaiList = await Store.get('rekapPegawaiList', []);
+  state.config = await Store.get('config', {});
   refreshAllReportYearOptions();
 
   document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
   document.getElementById('inpSheetPegawai').value = state.settings.sheetPegawai || 'Pegawai';
   renderEmployeeSummary();
+  populateConfigFields();
+  document.getElementById('btnSaveConfig').addEventListener('click', handleSaveConfig);
 
   document.getElementById('btnFetchPegawai').addEventListener('click', fetchPegawaiFromGoogle);
   document.getElementById('inpFileExcel').addEventListener('change', (e)=>{
