@@ -614,7 +614,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyB9BZv54jeQDdOVcTfe4hyTeIsvEQ4rZZH0GcgHKB2wonuXwOPMy57nmNRx_wx3Emwwg/exec';
+const DEFAULT_WEB_APP_URL = 'ISI_DI_SINI_URL_WEB_APP_GOOGLE_APPS_SCRIPT_ANDA';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -669,7 +669,6 @@ let state = {
   usulPangkatSelected: null, // pegawai terpilih pada form Input Pegawai (Usul Pangkat)
   usulPangkatBerkasRows: [''], // baris dropdown Kekurangan Berkas yang sedang diisi
   rekapPegawaiList: [], // rekap 9 kolom per bulan: {bulan, satker, laki, perempuan, jaksaLk, jaksaPr, tuLk, tuPr, total}
-  config: {}, // konfigurasi kecil: jumlah Jabatan Struktural & nama Satker Kejati Aceh
 };
 
 function genId(){ return 'r' + Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -938,44 +937,7 @@ async function fetchRekapPegawaiFromSheets(){
     return true;
   }catch(err){ return false; }
 }
-/** Konfigurasi kecil (jumlah Jabatan Struktural & nama Satker yang mewakili
- *  Kejati Aceh) yang dipakai pada Ringkasan Kategori / Laporan Kinerja.
- *  Disimpan sebagai key-value di sheet "Konfigurasi" (dibagi ke semua
- *  pengguna, bukan hanya tersimpan lokal di satu browser). */
-const CONFIG_KEYS = ['satkerKejati'];
-async function fetchConfigFromSheets(){
-  const url = state.settings.webAppUrl;
-  if(!url) return false;
-  try{
-    const res = await fetch(`${url}?action=getConfig`);
-    const json = await res.json();
-    if(json.error) return false;
-    state.config = json.config || {};
-    Store.set('config', state.config);
-    return true;
-  }catch(err){ return false; }
-}
-async function pushConfigToSheets(items){
-  const result = await apiPost({ type:'config', items });
-  return !result.error;
-}
-function populateConfigFields(){
-  const el = document.getElementById('cfgSatkerKejati');
-  if(el && state.config.satkerKejati != null) el.value = state.config.satkerKejati;
-}
-async function handleSaveConfig(){
-  if(!state.settings.webAppUrl){ showBanner('configBanner','warn','URL Web App belum diatur di atas.'); return; }
-  const items = [
-    { key:'satkerKejati', value: document.getElementById('cfgSatkerKejati').value.trim() },
-  ];
-  showBanner('configBanner','info','Menyimpan konfigurasi...');
-  const ok = await pushConfigToSheets(items);
-  if(!ok){ showBanner('configBanner','warn','Gagal menyimpan. Periksa koneksi internet Anda.'); return; }
-  items.forEach(it=> state.config[it.key] = it.value);
-  Store.set('config', state.config);
-  showBanner('configBanner','ok','Konfigurasi tersimpan.');
-  renderDashboard();
-}
+
 /** Menghitung rekap 9 kolom (Satuan Kerja, Laki-laki, Perempuan, Jaksa Lk,
  *  Jaksa Pr, TU Lk, TU Pr, Total) dari Data Pegawai Termuat saat ini — memakai
  *  logika Jenis Kelamin (dari NIP) & Jaksa/TU (dari Golongan) yang identik
@@ -984,18 +946,22 @@ async function handleSaveConfig(){
  *  dipakai untuk pegawai pada satker yang cocok dengan konfigurasi "Kejati
  *  Aceh". KTU/Koordinator dibedakan dari Asisten lewat teks Jabatan yang
  *  mengandung kata "tata usaha" atau "koordinator". */
+/** Menentukan bucket Jabatan Struktural. Eselon II & III (Asisten/KTU-Koordinator)
+ *  ditentukan dari AWALAN teks Jabatan (bukan kolom Eselon), sesuai jabatan resmi
+ *  di Kejati Aceh. Eselon IV & V memakai kolom Eselon pada data sumber, di mana
+ *  levelnya adalah karakter di sebelah KIRI tanda "/" (misal "IV/a" -> "IV"). */
 function jabatanStrukturalBucket(eselonRaw, jabatanRaw){
-  const es = String(eselonRaw||'').replace(/eselon/i,'').trim().toUpperCase();
-  const jab = String(jabatanRaw||'').toLowerCase();
-  if(es === 'II') return 'eselonII';
-  if(es === 'III') return (jab.includes('tata usaha') || jab.includes('koordinator')) ? 'eselonIIIKtu' : 'eselonIIIAsisten';
-  if(es === 'IV') return 'eselonIV';
-  if(es === 'V') return 'eselonV';
+  const jab = String(jabatanRaw||'').trim().toLowerCase();
+  if(jab.startsWith('kepala kejaksaan tinggi') || jab.startsWith('wakil kepala kejaksaan tinggi')) return 'eselonII';
+  if(jab.startsWith('asisten')) return 'eselonIIIAsisten';
+  if(jab.startsWith('kepala bagian tata usaha') || jab.startsWith('koordinator')) return 'eselonIIIKtu';
+  const esLevel = String(eselonRaw||'').split('/')[0].trim().toUpperCase();
+  if(esLevel === 'IV') return 'eselonIV';
+  if(esLevel === 'V') return 'eselonV';
   return null;
 }
 function computeRekapPegawaiPerSatker(employees){
   const rekap = {};
-  const kejatiName = (state.config.satkerKejati||'').trim().toLowerCase();
   employees.forEach(e=>{
     const satker = e.unit || 'Lainnya';
     if(!rekap[satker]) rekap[satker] = { laki:0, perempuan:0, jaksaLk:0, jaksaPr:0, tuLk:0, tuPr:0,
@@ -1005,7 +971,7 @@ function computeRekapPegawaiPerSatker(employees){
     if(jk === 'L'){ rekap[satker].laki++; if(jaksa) rekap[satker].jaksaLk++; else rekap[satker].tuLk++; }
     else { rekap[satker].perempuan++; if(jaksa) rekap[satker].jaksaPr++; else rekap[satker].tuPr++; }
 
-    if(kejatiName && String(satker).trim().toLowerCase() === kejatiName){
+    if(String(satker).trim().toLowerCase() === SATKER_KEJATI_NAME){
       const bucket = jabatanStrukturalBucket(e.eselon, e.jabatan);
       if(bucket) rekap[satker][bucket]++;
     }
@@ -1055,7 +1021,6 @@ async function refreshFromSheetsAndRender(){
     fetchBidangFromSheets(),
     fetchSisaCutiFromSheets(),
     fetchRekapPegawaiFromSheets(),
-    fetchConfigFromSheets(),
   ]);
   updateSyncIndicator(okRecords ? 'ok' : 'error');
   rerenderVisibleData();
@@ -1490,6 +1455,10 @@ function exportMonthlyRekapPDF(cat){ exportTableToPDF(`rekapTable_${cat.key}`, `
    MODUL: IZIN CUTI (Permohonan, Cuti Berjalan, Rekap, Pengaturan)
    ========================================================= */
 const BIDANG_OPTIONS = ['Eselon II dan III','Pembinaan','Intel','Pidum','Pidsus','Datun','Pidmil','Aset','Pengawasan','Tata Usaha'];
+/** Nama satker yang mewakili "Kejati Aceh" pada Ringkasan Kategori — dibandingkan
+ *  tanpa memandang huruf besar/kecil, jadi "KEJAKSAAN TINGGI ACEH" atau
+ *  "Kejaksaan Tinggi Aceh" pada data pegawai akan sama-sama cocok. */
+const SATKER_KEJATI_NAME = 'kejaksaan tinggi aceh';
 const CUTI_STATUS_OPTIONS = ['Pengajuan','Disetujui','Ditolak','Ditunda','Dibatalkan','Berjalan'];
 const STATUS_AWAL_OPTIONS = ['Pengajuan','Disetujui'];
 const CUTI_DEDUCTING_STATUSES = ['Disetujui','Berjalan']; // status yang memotong sisa cuti
@@ -3165,19 +3134,17 @@ function computeLaporanKinerja(type,year,period,acc){
   const push = (label, value, note)=> items.push({ letter: letter(), label, value, note: note||'' });
   const pushSub = (label, value)=> items.push({ letter:'', label:'&nbsp;&nbsp;'+label, value, note:'', sub:true });
 
-  const cfg = state.config || {};
-  const satkerKejatiName = (cfg.satkerKejati||'').trim().toLowerCase();
   // Jabatan Struktural & Jumlah Pegawai SELALU dari snapshot bulan+tahun terpilih SAJA,
   // tidak pernah diakumulasikan meskipun kotak Akumulasi dicentang.
   const pegawaiPeriode = rekapPegawaiForPeriod(type,year,period,false);
   const seAceh = sumRekapPegawai(pegawaiPeriode.rows);
-  const kejatiRows = satkerKejatiName ? pegawaiPeriode.rows.filter(r=> String(r.satker||'').trim().toLowerCase()===satkerKejatiName) : [];
+  const kejatiRows = pegawaiPeriode.rows.filter(r=> String(r.satker||'').trim().toLowerCase()===SATKER_KEJATI_NAME);
   const kejati = sumRekapPegawai(kejatiRows);
   const snapshotNote = pegawaiPeriode.bulan ? `snapshot ${formatBulanID(pegawaiPeriode.bulan)}` : 'belum ada data Rekap Pegawai';
 
   const jab = kejatiRows[0] || { eselonII:0, eselonIIIAsisten:0, eselonIIIKtu:0, eselonIV:0, eselonV:0 };
   const jabTotal = (jab.eselonII||0)+(jab.eselonIIIAsisten||0)+(jab.eselonIIIKtu||0)+(jab.eselonIV||0)+(jab.eselonV||0);
-  push('Jabatan Struktural', satkerKejatiName ? `${jabTotal} Jabatan (${snapshotNote})` : 'Nama Satker Kejati belum diatur di Pengaturan');
+  push('Jabatan Struktural', `${jabTotal} Jabatan (${snapshotNote})`);
   pushSub('Eselon II Kajati/Wakajati', `${jab.eselonII||0} Jabatan`);
   pushSub('Eselon III Asisten', `${jab.eselonIIIAsisten||0} Jabatan`);
   pushSub('Eselon III KTU/Koordinator', `${jab.eselonIIIKtu||0} Jabatan`);
@@ -3186,8 +3153,8 @@ function computeLaporanKinerja(type,year,period,acc){
 
   push('Jumlah Pegawai Kejaksaan Se Aceh', `${seAceh.total} org (${snapshotNote})`);
   pushSub(jaksaTuText(seAceh), '');
-  push('Jumlah Pegawai Jaksa/Tata Usaha pada Kejati Aceh', satkerKejatiName ? `${kejati.total} org (${snapshotNote})` : 'Nama Satker Kejati belum diatur di Pengaturan');
-  if(satkerKejatiName) pushSub(jaksaTuText(kejati), '');
+  push('Jumlah Pegawai Jaksa/Tata Usaha pada Kejati Aceh', `${kejati.total} org (${snapshotNote})`);
+  pushSub(jaksaTuText(kejati), '');
 
   const diklatRows = catRecordsForPeriod('diklat',type,year,period,acc);
   push('Pendidikan dan Pelatihan', `${diklatRows.length} Orang`);
@@ -3473,15 +3440,6 @@ function panelPengaturanHTML(){
       </div>
     </div>
     <div class="card">
-      <h2>Konfigurasi Laporan Kinerja</h2>
-      <p class="hint">Jabatan Struktural kini dihitung <strong>otomatis</strong> dari Data Pegawai Termuat (kolom Jabatan, Eselon, Satker) pada satker di bawah ini — bukan diisi manual lagi. Nama Satker ini juga dipakai untuk memisahkan "Jumlah Pegawai Se Aceh" (seluruh satker) dari "Jumlah Pegawai pada Kejati Aceh" (satu satker saja) pada Ringkasan Kategori di Dashboard. Pastikan kolom Eselon dan Golongan/Pangkat sudah dipetakan dengan benar di langkah "Sesuaikan Kolom" pada Sumber Data Pegawai, dan Data Pegawai Termuat sudah pernah disimpan sebagai snapshot bulanan lewat "Simpan Ke Laporan" di atas.</p>
-      <div class="field-grid">
-        <div class="field full"><label>Nama Satker yang mewakili "Kejati Aceh" (harus sama persis dengan nilai Unit Kerja/Satker pada data pegawai)</label><input type="text" id="cfgSatkerKejati" placeholder="mis. KEJAKSAAN TINGGI ACEH"></div>
-      </div>
-      <div class="btn-row"><button class="btn accent" id="btnSaveConfig">Simpan Konfigurasi</button></div>
-      <div id="configBanner"></div>
-    </div>
-    <div class="card">
       <h2>Tentang Mode Realtime</h2>
       <p class="hint">Setiap kali Anda menyimpan, mengubah status, atau menghapus data, aplikasi langsung mengirimkannya ke Google Sheets — bukan lagi disimpan lokal lalu dikirim manual. Setiap kali aplikasi dibuka, berpindah tab, atau kembali aktif setelah beberapa saat, data terbaru otomatis ditarik ulang dari Sheets, sehingga semua orang yang mengakses ${'`'}aplikasi-kepegawaian.html${'`'} melihat data yang sama.</p>
       <p class="hint"><strong>Konsekuensi:</strong> aplikasi membutuhkan koneksi internet setiap saat untuk menyimpan atau membaca data. Jika koneksi terputus saat menyimpan, aplikasi akan memberi tahu dan data tidak akan tersimpan setengah-setengah. URL Web App sendiri tetap tersimpan di penyimpanan browser ini (${HAS_APP_STORAGE? 'penyimpanan aplikasi Claude' : (HAS_LOCAL_STORAGE? 'localStorage browser ini' : 'tidak tersimpan permanen di browser ini')}), jadi tidak perlu diisi ulang setiap membuka aplikasi di perangkat/browser yang sama.</p>
@@ -3516,14 +3474,11 @@ async function init(){
   state.bidangList = await Store.get('bidangList', []);
   state.sisaCutiList = await Store.get('sisaCutiList', []);
   state.rekapPegawaiList = await Store.get('rekapPegawaiList', []);
-  state.config = await Store.get('config', {});
   refreshAllReportYearOptions();
 
   document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
   document.getElementById('inpSheetPegawai').value = state.settings.sheetPegawai || 'Pegawai';
   renderEmployeeSummary();
-  populateConfigFields();
-  document.getElementById('btnSaveConfig').addEventListener('click', handleSaveConfig);
 
   document.getElementById('btnFetchPegawai').addEventListener('click', fetchPegawaiFromGoogle);
   document.getElementById('inpFileExcel').addEventListener('change', (e)=>{
