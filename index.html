@@ -129,6 +129,28 @@
     background:#E4DECC;
   }
   nav.tabs .group-label.nav-toggle:hover{ background:#DCD3B8; }
+
+  /* Ikon khusus untuk setiap menu sidebar */
+  nav.tabs .nav-item-inner{
+    display:flex; align-items:center; gap:9px; min-width:0;
+  }
+  nav.tabs .nav-icon{
+    width:20px; height:20px; min-width:20px; display:inline-flex; align-items:center; justify-content:center;
+    color:#7A1F2B;
+    background:#F8F1E3;
+    border:1px solid #D8CCB4;
+    border-radius:6px;
+    box-sizing:border-box;
+  }
+  nav.tabs .nav-icon svg{width:13px;height:13px;display:block;}
+  nav.tabs button.active .nav-icon{background:#F3E2B8;border-color:#C58A28;color:#7A1F2B;}
+  nav.tabs button:hover .nav-icon{background:#F3E7D0;}
+  nav.tabs .group-label .nav-icon{
+    width:20px;height:20px;min-width:20px;
+    color:#7A1F2B;background:#F6EBD5;border-color:#D5C6A8;
+  }
+  nav.tabs .group-label .nav-icon svg{width:13px;height:13px;}
+  nav.tabs .group-label .group-title{display:flex;align-items:center;gap:9px;min-width:0;}
   nav.tabs .group-label.nav-toggle::after{ content:'▾'; font-size:11px; color:var(--ink-soft); }
   nav.tabs .group-label.nav-toggle.collapsed::after{ content:'▸'; }
   nav.tabs button.nav-hidden{ display:none; }
@@ -400,6 +422,11 @@
 .dashboard-table-card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px;box-shadow:0 5px 18px rgba(15,23,42,.045)}
 @media(max-width:900px){.dashboard-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-charts{grid-template-columns:1fr}.category-chart-grid{grid-template-columns:1fr}}
 @media(max-width:560px){.dashboard-kpis{grid-template-columns:1fr}.dashboard-filters .field{min-width:100%}.dashboard-filter-acc{width:100%}}
+
+/* ===== IKON JUDUL SEMANTIK - aman tanpa library eksternal ===== */
+.title-with-icon{display:inline-flex;align-items:center;justify-content:center;width:34px;height:34px;margin-right:10px;border-radius:10px;background:rgba(122,31,43,.09);color:#7a1f2b;vertical-align:middle;flex:0 0 34px;}
+.title-with-icon svg{width:18px;height:18px;display:block;}
+h2,h3,h4{display:flex;align-items:center;gap:0;}
 </style>
 </head>
 <body>
