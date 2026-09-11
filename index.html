@@ -562,12 +562,6 @@ const CATEGORIES = [
     { id:'periode', label:'Periode (Bulan)', type:'month' },
     { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
   ]},
-  { key:'realisasipangkat', label:'Realisasi Kenaikan Pangkat', sheet:'Realisasi Kenaikan Pangkat', fields:[
-    { id:'tglInput', label:'Tanggal Input', type:'date' },
-    { id:'periode', label:'Periode (Bulan)', type:'month' },
-    { id:'nomorSk', label:'Nomor SK', type:'text' },
-    { id:'tmt', label:'TMT Pangkat Baru', type:'date' },
-  ]},
   { key:'pelantikan', label:'Pelantikan', sheet:'Pelantikan', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
     { id:'periode', label:'Periode (Bulan)', type:'month' },
@@ -579,11 +573,6 @@ const CATEGORIES = [
     { id:'periode', label:'Periode (Bulan)', type:'month' },
     { id:'jenisPenghargaan', label:'Masa Kerja', type:'select', options:['10 Tahun','20 Tahun','30 Tahun'] },
     { id:'nomorSk', label:'Nomor SK', type:'text' },
-  ]},
-  { key:'rencanamutasilokal', label:'Rencana Mutasi Lokal', sheet:'Rencana Mutasi Lokal', fields:[
-    { id:'tglInput', label:'Tanggal Input', type:'date' },
-    { id:'periode', label:'Periode (Bulan)', type:'month' },
-    { id:'rencanaUnit', label:'Rencana Unit Tujuan', type:'text' },
   ]},
   { key:'usulmutasipromosi', label:'Usul Mutasi/Promosi Pegawai', sheet:'Usul Mutasi Promosi', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -625,7 +614,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxqxaQfUc6qwcZ6Pox6Ap8YHiO88UmP5yosdTC8w1OasVwGxY4Hh2CD6aDejVFz_5Qiog/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyB9BZv54jeQDdOVcTfe4hyTeIsvEQ4rZZH0GcgHKB2wonuXwOPMy57nmNRx_wx3Emwwg/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -744,6 +733,7 @@ let STANDARD_FIELDS = [
   { key:'jabatan', label:'Jabatan', guess:['jabatan','posisi','position'] },
   { key:'unit', label:'Unit Kerja', guess:['unit','satker','bidang','bagian'] },
   { key:'golongan', label:'Golongan / Pangkat', guess:['golongan','pangkat','gol/pangkat','gol'] },
+  { key:'eselon', label:'Eselon', guess:['eselon'] },
 ];
 
 /** Jenis kelamin dihitung dari karakter ke-15 NIP (bukan dari kolom terpisah) —
@@ -803,6 +793,7 @@ function confirmMapping(){
       jabatan: mapping.jabatan>=0 ? String(r[mapping.jabatan] ?? '').trim() : '',
       unit: mapping.unit>=0 ? String(r[mapping.unit] ?? '').trim() : '',
       golongan: mapping.golongan>=0 ? String(r[mapping.golongan] ?? '').trim() : '',
+      eselon: mapping.eselon>=0 ? String(r[mapping.eselon] ?? '').trim() : '',
     }))
     .filter(e=> e.nama);
   state.employees = employees;
@@ -824,8 +815,8 @@ function renderEmployeeSummary(){
 function renderEmployeeTable(list){
   const table = document.getElementById('employeeTable');
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data.</td></tr>'; return; }
-  table.innerHTML = '<tr><th>NIP</th><th>Nama</th><th>Jabatan</th><th>Unit Kerja</th><th>Golongan/Pangkat</th></tr>' +
-    list.map(e=>`<tr><td>${e.nip||'-'}</td><td>${e.nama}</td><td>${e.jabatan||'-'}</td><td>${e.unit||'-'}</td><td>${e.golongan||'-'}</td></tr>`).join('');
+  table.innerHTML = '<tr><th>NIP</th><th>Nama</th><th>Jabatan</th><th>Unit Kerja</th><th>Golongan/Pangkat</th><th>Eselon</th></tr>' +
+    list.map(e=>`<tr><td>${e.nip||'-'}</td><td>${e.nama}</td><td>${e.jabatan||'-'}</td><td>${e.unit||'-'}</td><td>${e.golongan||'-'}</td><td>${e.eselon||'-'}</td></tr>`).join('');
 }
 
 function showBanner(elId, type, msg){
@@ -951,7 +942,7 @@ async function fetchRekapPegawaiFromSheets(){
  *  Kejati Aceh) yang dipakai pada Ringkasan Kategori / Laporan Kinerja.
  *  Disimpan sebagai key-value di sheet "Konfigurasi" (dibagi ke semua
  *  pengguna, bukan hanya tersimpan lokal di satu browser). */
-const CONFIG_KEYS = ['jabatanEselonII','jabatanEselonIIIAsisten','jabatanEselonIIIKtu','jabatanEselonIV','jabatanEselonV','satkerKejati'];
+const CONFIG_KEYS = ['satkerKejati'];
 async function fetchConfigFromSheets(){
   const url = state.settings.webAppUrl;
   if(!url) return false;
@@ -969,24 +960,12 @@ async function pushConfigToSheets(items){
   return !result.error;
 }
 function populateConfigFields(){
-  const map = {
-    cfgEselonII:'jabatanEselonII', cfgEselonIIIAsisten:'jabatanEselonIIIAsisten',
-    cfgEselonIIIKtu:'jabatanEselonIIIKtu', cfgEselonIV:'jabatanEselonIV',
-    cfgEselonV:'jabatanEselonV', cfgSatkerKejati:'satkerKejati',
-  };
-  Object.keys(map).forEach(elId=>{
-    const el = document.getElementById(elId);
-    if(el && state.config[map[elId]] != null) el.value = state.config[map[elId]];
-  });
+  const el = document.getElementById('cfgSatkerKejati');
+  if(el && state.config.satkerKejati != null) el.value = state.config.satkerKejati;
 }
 async function handleSaveConfig(){
   if(!state.settings.webAppUrl){ showBanner('configBanner','warn','URL Web App belum diatur di atas.'); return; }
   const items = [
-    { key:'jabatanEselonII', value: document.getElementById('cfgEselonII').value || 0 },
-    { key:'jabatanEselonIIIAsisten', value: document.getElementById('cfgEselonIIIAsisten').value || 0 },
-    { key:'jabatanEselonIIIKtu', value: document.getElementById('cfgEselonIIIKtu').value || 0 },
-    { key:'jabatanEselonIV', value: document.getElementById('cfgEselonIV').value || 0 },
-    { key:'jabatanEselonV', value: document.getElementById('cfgEselonV').value || 0 },
     { key:'satkerKejati', value: document.getElementById('cfgSatkerKejati').value.trim() },
   ];
   showBanner('configBanner','info','Menyimpan konfigurasi...');
@@ -1001,19 +980,42 @@ async function handleSaveConfig(){
  *  Jaksa Pr, TU Lk, TU Pr, Total) dari Data Pegawai Termuat saat ini — memakai
  *  logika Jenis Kelamin (dari NIP) & Jaksa/TU (dari Golongan) yang identik
  *  dengan Aplikasi Pencarian Pegawai (SIMKARI). */
+/** Menentukan bucket Jabatan Struktural dari teks Eselon & Jabatan — hanya
+ *  dipakai untuk pegawai pada satker yang cocok dengan konfigurasi "Kejati
+ *  Aceh". KTU/Koordinator dibedakan dari Asisten lewat teks Jabatan yang
+ *  mengandung kata "tata usaha" atau "koordinator". */
+function jabatanStrukturalBucket(eselonRaw, jabatanRaw){
+  const es = String(eselonRaw||'').replace(/eselon/i,'').trim().toUpperCase();
+  const jab = String(jabatanRaw||'').toLowerCase();
+  if(es === 'II') return 'eselonII';
+  if(es === 'III') return (jab.includes('tata usaha') || jab.includes('koordinator')) ? 'eselonIIIKtu' : 'eselonIIIAsisten';
+  if(es === 'IV') return 'eselonIV';
+  if(es === 'V') return 'eselonV';
+  return null;
+}
 function computeRekapPegawaiPerSatker(employees){
   const rekap = {};
+  const kejatiName = (state.config.satkerKejati||'').trim().toLowerCase();
   employees.forEach(e=>{
     const satker = e.unit || 'Lainnya';
-    if(!rekap[satker]) rekap[satker] = { laki:0, perempuan:0, jaksaLk:0, jaksaPr:0, tuLk:0, tuPr:0 };
+    if(!rekap[satker]) rekap[satker] = { laki:0, perempuan:0, jaksaLk:0, jaksaPr:0, tuLk:0, tuPr:0,
+      eselonII:0, eselonIIIAsisten:0, eselonIIIKtu:0, eselonIV:0, eselonV:0 };
     const jk = parseGenderFromNip(e.nip);
     const jaksa = isJaksaGol(e.golongan);
     if(jk === 'L'){ rekap[satker].laki++; if(jaksa) rekap[satker].jaksaLk++; else rekap[satker].tuLk++; }
     else { rekap[satker].perempuan++; if(jaksa) rekap[satker].jaksaPr++; else rekap[satker].tuPr++; }
+
+    if(kejatiName && String(satker).trim().toLowerCase() === kejatiName){
+      const bucket = jabatanStrukturalBucket(e.eselon, e.jabatan);
+      if(bucket) rekap[satker][bucket]++;
+    }
   });
   return Object.keys(rekap).sort().map(satker=>{
     const r = rekap[satker];
-    return { satker, laki:r.laki, perempuan:r.perempuan, jaksaLk:r.jaksaLk, jaksaPr:r.jaksaPr, tuLk:r.tuLk, tuPr:r.tuPr, total:r.laki+r.perempuan };
+    return {
+      satker, laki:r.laki, perempuan:r.perempuan, jaksaLk:r.jaksaLk, jaksaPr:r.jaksaPr, tuLk:r.tuLk, tuPr:r.tuPr, total:r.laki+r.perempuan,
+      eselonII:r.eselonII, eselonIIIAsisten:r.eselonIIIAsisten, eselonIIIKtu:r.eselonIIIKtu, eselonIV:r.eselonIV, eselonV:r.eselonV,
+    };
   });
 }
 
@@ -1160,6 +1162,7 @@ async function autoLoadEmployeesIfConfigured(){
         jabatan: mapping.jabatan>=0 ? String(r[mapping.jabatan] ?? '').trim() : '',
         unit: mapping.unit>=0 ? String(r[mapping.unit] ?? '').trim() : '',
         golongan: mapping.golongan>=0 ? String(r[mapping.golongan] ?? '').trim() : '',
+        eselon: mapping.eselon>=0 ? String(r[mapping.eselon] ?? '').trim() : '',
       }))
       .filter(e=> e.nama);
     state.employees = employees;
@@ -2674,10 +2677,8 @@ const REPORT_DATE_FIELD_OPTIONS_MAP = {
   penerimaancpns: ['tglInput','periode'],
   penerimaanpppk: ['tglInput','periode'],
   usulcpnskepns: ['tglInput','periode'],
-  realisasipangkat: ['tglInput','periode'],
   pelantikan: ['tglInput','periode'],
   satyalencana: ['tglInput','periode'],
-  rencanamutasilokal: ['tglInput','periode'],
   usulmutasipromosi: ['tglInput','periode'],
   usulpensiun: ['tglInput','periode'],
   izinpendidikan: ['tglInput','periode'],
@@ -3165,21 +3166,24 @@ function computeLaporanKinerja(type,year,period,acc){
   const pushSub = (label, value)=> items.push({ letter:'', label:'&nbsp;&nbsp;'+label, value, note:'', sub:true });
 
   const cfg = state.config || {};
-  const jabStrukturalTotal = ['jabatanEselonII','jabatanEselonIIIAsisten','jabatanEselonIIIKtu','jabatanEselonIV','jabatanEselonV']
-    .reduce((s,k)=> s + (parseInt(cfg[k],10)||0), 0);
-  push('Jabatan Struktural', jabStrukturalTotal ? `${jabStrukturalTotal} Jabatan` : '-');
-  pushSub('Eselon II Kajati/Wakajati', `${parseInt(cfg.jabatanEselonII,10)||0} Jabatan`);
-  pushSub('Eselon III Asisten', `${parseInt(cfg.jabatanEselonIIIAsisten,10)||0} Jabatan`);
-  pushSub('Eselon III KTU/Koordinator', `${parseInt(cfg.jabatanEselonIIIKtu,10)||0} Jabatan`);
-  pushSub('Eselon IV', `${parseInt(cfg.jabatanEselonIV,10)||0} Jabatan`);
-  pushSub('Eselon V', `${parseInt(cfg.jabatanEselonV,10)||0} Jabatan`);
-
-  const pegawaiPeriode = rekapPegawaiForPeriod(type,year,period,acc);
-  const seAceh = sumRekapPegawai(pegawaiPeriode.rows);
   const satkerKejatiName = (cfg.satkerKejati||'').trim().toLowerCase();
+  // Jabatan Struktural & Jumlah Pegawai SELALU dari snapshot bulan+tahun terpilih SAJA,
+  // tidak pernah diakumulasikan meskipun kotak Akumulasi dicentang.
+  const pegawaiPeriode = rekapPegawaiForPeriod(type,year,period,false);
+  const seAceh = sumRekapPegawai(pegawaiPeriode.rows);
   const kejatiRows = satkerKejatiName ? pegawaiPeriode.rows.filter(r=> String(r.satker||'').trim().toLowerCase()===satkerKejatiName) : [];
   const kejati = sumRekapPegawai(kejatiRows);
   const snapshotNote = pegawaiPeriode.bulan ? `snapshot ${formatBulanID(pegawaiPeriode.bulan)}` : 'belum ada data Rekap Pegawai';
+
+  const jab = kejatiRows[0] || { eselonII:0, eselonIIIAsisten:0, eselonIIIKtu:0, eselonIV:0, eselonV:0 };
+  const jabTotal = (jab.eselonII||0)+(jab.eselonIIIAsisten||0)+(jab.eselonIIIKtu||0)+(jab.eselonIV||0)+(jab.eselonV||0);
+  push('Jabatan Struktural', satkerKejatiName ? `${jabTotal} Jabatan (${snapshotNote})` : 'Nama Satker Kejati belum diatur di Pengaturan');
+  pushSub('Eselon II Kajati/Wakajati', `${jab.eselonII||0} Jabatan`);
+  pushSub('Eselon III Asisten', `${jab.eselonIIIAsisten||0} Jabatan`);
+  pushSub('Eselon III KTU/Koordinator', `${jab.eselonIIIKtu||0} Jabatan`);
+  pushSub('Eselon IV', `${jab.eselonIV||0} Jabatan`);
+  pushSub('Eselon V', `${jab.eselonV||0} Jabatan`);
+
   push('Jumlah Pegawai Kejaksaan Se Aceh', `${seAceh.total} org (${snapshotNote})`);
   pushSub(jaksaTuText(seAceh), '');
   push('Jumlah Pegawai Jaksa/Tata Usaha pada Kejati Aceh', satkerKejatiName ? `${kejati.total} org (${snapshotNote})` : 'Nama Satker Kejati belum diatur di Pengaturan');
@@ -3193,7 +3197,7 @@ function computeLaporanKinerja(type,year,period,acc){
 
   push('Usul CPNS Menjadi PNS', `${countCat('usulcpnskepns',type,year,period,acc)} orang`);
   push('Usul Kenaikan Pangkat', `${countCat('usulpangkat',type,year,period,acc)} orang`);
-  push('Realisasi Kenaikan Pangkat', `${countCat('realisasipangkat',type,year,period,acc)} orang`);
+  push('Realisasi Kenaikan Pangkat', `${countCatWhere('usulpangkat',type,year,period,acc,'statusUsul','Di Kirim')} orang`);
   push('Pelantikan Pejabat Eselon II', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon II')} Kali`);
   push('Pelantikan Pejabat Eselon III', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon III')} Kali`);
   push('Pelantikan Pejabat Eselon IV', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','Eselon IV')} Kali`);
@@ -3203,7 +3207,7 @@ function computeLaporanKinerja(type,year,period,acc){
   push('Pelantikan CPNS menjadi PNS', `${countCatWhere('pelantikan',type,year,period,acc,'jenisPelantikan','CPNS menjadi PNS')} Kali`);
   push('Satya Lencana', `${countCat('satyalencana',type,year,period,acc)} orang`);
   push('Cuti', `${countCat('cuti',type,year,period,acc)} orang`);
-  push('Rencana Mutasi Lokal', `${countCat('rencanamutasilokal',type,year,period,acc)} Kali`);
+  push('Rencana Mutasi Lokal', `${countCatWhere('mutasilokal',type,year,period,acc,'status','Disetujui')} Kali`);
   push('Mutasi Lokal', `${countCat('mutasilokal',type,year,period,acc)} orang`);
   push('Kenaikan Gaji Berkala', `${countCat('kgb',type,year,period,acc)} orang`);
   push('Usul Mutasi/Promosi Pegawai', `${countCat('usulmutasipromosi',type,year,period,acc)} orang`);
@@ -3241,7 +3245,12 @@ function exportLaporanKinerjaPDF(type,year,period,acc){
 function wireDashboard(){
   const type=document.getElementById('dashType'),year=document.getElementById('dashYear'),period=document.getElementById('dashPeriod'),acc=document.getElementById('dashAcc');
   const years=reportYearOptions();
-  year.innerHTML=years.map(y=>`<option value="${y}" ${y===new Date().getFullYear()?'selected':''}>${y}</option>`).join('');
+  const today = new Date();
+  year.innerHTML=years.map(y=>`<option value="${y}" ${y===today.getFullYear()?'selected':''}>${y}</option>`).join('');
+  // Default realtime saat aplikasi dibuka: Periode Rekap = Bulanan, Tahun & Periode Terpilih = bulan berjalan hari ini.
+  type.value = 'monthly';
+  period.innerHTML = getPeriodOptions('monthly');
+  period.value = String(today.getMonth()+1);
   type.addEventListener('change',()=>{period.innerHTML=getPeriodOptions(type.value);period.value=type.value==='monthly'?String(new Date().getMonth()+1):'1';renderDashboard();});
   year.addEventListener('change',renderDashboard); period.addEventListener('change',renderDashboard); acc.addEventListener('change',renderDashboard);
   document.getElementById('btnExportDashExcel').addEventListener('click', ()=>{
@@ -3465,13 +3474,8 @@ function panelPengaturanHTML(){
     </div>
     <div class="card">
       <h2>Konfigurasi Laporan Kinerja</h2>
-      <p class="hint">Angka Jabatan Struktural bersifat tetap/jarang berubah, jadi diisi manual di sini (bukan hasil hitung otomatis dari data transaksi). Nama Satker dipakai untuk memisahkan "Jumlah Pegawai Se Aceh" (seluruh satker) dari "Jumlah Pegawai pada Kejati Aceh" (satu satker saja) pada Ringkasan Kategori di Dashboard.</p>
+      <p class="hint">Jabatan Struktural kini dihitung <strong>otomatis</strong> dari Data Pegawai Termuat (kolom Jabatan, Eselon, Satker) pada satker di bawah ini — bukan diisi manual lagi. Nama Satker ini juga dipakai untuk memisahkan "Jumlah Pegawai Se Aceh" (seluruh satker) dari "Jumlah Pegawai pada Kejati Aceh" (satu satker saja) pada Ringkasan Kategori di Dashboard. Pastikan kolom Eselon dan Golongan/Pangkat sudah dipetakan dengan benar di langkah "Sesuaikan Kolom" pada Sumber Data Pegawai, dan Data Pegawai Termuat sudah pernah disimpan sebagai snapshot bulanan lewat "Simpan Ke Laporan" di atas.</p>
       <div class="field-grid">
-        <div class="field"><label>Eselon II (Kajati/Wakajati)</label><input type="number" id="cfgEselonII"></div>
-        <div class="field"><label>Eselon III (Asisten)</label><input type="number" id="cfgEselonIIIAsisten"></div>
-        <div class="field"><label>Eselon III (KTU/Koordinator)</label><input type="number" id="cfgEselonIIIKtu"></div>
-        <div class="field"><label>Eselon IV</label><input type="number" id="cfgEselonIV"></div>
-        <div class="field"><label>Eselon V</label><input type="number" id="cfgEselonV"></div>
         <div class="field full"><label>Nama Satker yang mewakili "Kejati Aceh" (harus sama persis dengan nilai Unit Kerja/Satker pada data pegawai)</label><input type="text" id="cfgSatkerKejati" placeholder="mis. KEJAKSAAN TINGGI ACEH"></div>
       </div>
       <div class="btn-row"><button class="btn accent" id="btnSaveConfig">Simpan Konfigurasi</button></div>
