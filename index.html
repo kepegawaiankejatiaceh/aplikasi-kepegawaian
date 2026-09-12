@@ -9,7 +9,14 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-<style>
+<style>.employee-search-row{display:flex;align-items:center;gap:8px;}
+.employee-search-row input{flex:1;}
+.btn-add-employee{width:40px;height:40px;min-width:40px;border:none;border-radius:9px;background:var(--accent);color:#fff;font-size:25px;font-weight:700;line-height:1;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.btn-add-employee:hover{filter:brightness(.95);}
+.bulk-employee-list{margin-top:10px;display:flex;flex-direction:column;gap:6px;}
+.bulk-employee-item{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:#f8fafc;font-size:13px;}
+.bulk-employee-remove{border:none;background:transparent;color:#dc2626;font-weight:700;cursor:pointer;font-size:18px;}
+
   :root{
     --bg:#F6F4EE;
     --surface:#FFFFFF;
@@ -395,7 +402,11 @@
 .category-chart{border:1px solid var(--line);border-radius:13px;padding:13px;background:#fcfdff}
 .category-chart .cat-name{font-size:13px;font-weight:700;margin-bottom:8px}
 .category-chart .cat-total{font-size:11px;color:var(--ink-soft);margin-top:6px}
-.mini-svg{width:100%;height:120px;display:block}
+.mini-svg{
+  width:100%;
+  height:150px;
+  display:block;
+}
 .dashboard-empty{padding:28px;text-align:center;color:var(--ink-soft);border:1px dashed var(--line);border-radius:12px;background:#fafafa}
 .dashboard-table-card{background:#fff;border:1px solid var(--line);border-radius:15px;padding:16px;box-shadow:0 5px 18px rgba(15,23,42,.045)}
 @media(max-width:900px){.dashboard-kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.dashboard-charts{grid-template-columns:1fr}.category-chart-grid{grid-template-columns:1fr}}
@@ -513,9 +524,7 @@ nav.tabs button.active .nav-icon {
     <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
-	<a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">Data Mysimkari &#8599;</a>
-	<a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
+    <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
   </div>
 </header>
 
@@ -719,7 +728,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwB7rgPE79XYzF5TGXq4JLQI9U-trVUMA7Cui64xjaDJi8pds7Y1UoMvvJ7b4dBSm1f0g/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxvzMLylsaR2GXkQhqN7LCdSn2-qZmuDdDWZ40MsP8xPxAo2zQ1w_g1EPkc23qJNDfUGg/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -765,9 +774,11 @@ const HAS_STORAGE = HAS_APP_STORAGE || HAS_LOCAL_STORAGE;
 let state = {
   employees: [],       // {nip, nama, jabatan, unit}
   records: [],         // input records
-  settings: { webAppUrl:'', sheetPegawai:'Pegawai' },
+  settings: { webAppUrl:'', sheetPegawai:'Worksheet' },
   rawImport: null,     // { headers:[], rows:[[...]] } sementara sebelum mapping
   selectedEmployee: {}, // per-kategori pilihan pegawai sementara { [catKey]: employeeObj|null }
+  bulkEmployees: {},
+  bulkManualNames: {},
   bidangList: [],      // {nip, nama, bidang} - default bidang per pegawai (modul Cuti)
   sisaCutiList: [],    // {nip, nama, berjalan, tahunLalu, duaTahunLalu} - saldo sisa cuti (modul Cuti)
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
@@ -1154,48 +1165,15 @@ async function fetchRekapPegawaiFromSheets(){
  *  di Kejati Aceh. Eselon IV & V memakai kolom Eselon pada data sumber, di mana
  *  levelnya adalah karakter di sebelah KIRI tanda "/" (misal "IV/a" -> "IV"). */
 function jabatanStrukturalBucket(eselonRaw, jabatanRaw){
-  // Eselon WAJIB terisi.
-  // Jika kolom Eselon kosong, pegawai tidak dihitung
-  // sebagai Jabatan Struktural.
-  const eselon = String(eselonRaw || '').trim();
-  if(!eselon) return null;
-
-  const jab = String(jabatanRaw || '').trim().toLowerCase();
-
-  // Eselon II tetap ditentukan dari nama jabatan,
-  // tetapi sekarang WAJIB memiliki data Eselon.
-  if(
-    jab.startsWith('kepala kejaksaan tinggi') ||
-    jab.startsWith('wakil kepala kejaksaan tinggi')
-  ){
-    return 'eselonII';
-  }
-
-  // Eselon III Asisten
-  if(jab.startsWith('asisten')){
-    return 'eselonIIIAsisten';
-  }
-
-  // Eselon III KTU / Koordinator
-  if(
-    jab.startsWith('kepala bagian tata usaha') ||
-    jab.startsWith('koordinator')
-  ){
-    return 'eselonIIIKtu';
-  }
-
-  // Eselon IV dan V berdasarkan kolom Eselon
-  const esLevel = eselon
-    .split('/')[0]
-    .trim()
-    .toUpperCase();
-
+  const jab = String(jabatanRaw||'').trim().toLowerCase();
+  if(jab.startsWith('kepala kejaksaan tinggi') || jab.startsWith('wakil kepala kejaksaan tinggi')) return 'eselonII';
+  if(jab.startsWith('asisten')) return 'eselonIIIAsisten';
+  if(jab.startsWith('kepala bagian tata usaha') || jab.startsWith('koordinator')) return 'eselonIIIKtu';
+  const esLevel = String(eselonRaw||'').split('/')[0].trim().toUpperCase();
   if(esLevel === 'IV') return 'eselonIV';
   if(esLevel === 'V') return 'eselonV';
-
   return null;
 }
-
 function computeRekapPegawaiPerSatker(employees){
   const rekap = {};
   employees.forEach(e=>{
@@ -1207,7 +1185,7 @@ function computeRekapPegawaiPerSatker(employees){
     if(jk === 'L'){ rekap[satker].laki++; if(jaksa) rekap[satker].jaksaLk++; else rekap[satker].tuLk++; }
     else { rekap[satker].perempuan++; if(jaksa) rekap[satker].jaksaPr++; else rekap[satker].tuPr++; }
 
-    if(String(satker).trim().toLowerCase() === SATKER_KEJATI_NAME){
+    if(String(satker).trim().toLowerCase().includes(SATKER_KEJATI_NAME)){
       const bucket = jabatanStrukturalBucket(e.eselon, e.jabatan);
       if(bucket) rekap[satker][bucket]++;
     }
@@ -1291,7 +1269,7 @@ function rerenderVisibleData(){
 
 async function fetchPegawaiFromGoogle(){
   const url = state.settings.webAppUrl;
-  const sheetName = document.getElementById('inpSheetPegawai').value.trim() || 'Pegawai';
+  const sheetName = document.getElementById('inpSheetPegawai').value.trim() || 'Worksheet';
   if(!url){
     showBanner('sumberBanner','warn','Atur URL Web App Google Apps Script terlebih dahulu di tab Pengaturan.');
     return;
@@ -1340,7 +1318,7 @@ function tryAutoMapping(headers){
  *  perlu konfirmasi manual, supaya siapa pun yang membuka aplikasi langsung siap pakai. */
 async function autoLoadEmployeesIfConfigured(){
   const url = state.settings.webAppUrl;
-  const sheetName = state.settings.sheetPegawai || 'Sheet1';
+  const sheetName = state.settings.sheetPegawai || 'Worksheet';
   if(!url) return;
   try{
     const res = await fetch(`${url}?action=getPegawai&sheet=${encodeURIComponent(sheetName)}`);
@@ -1435,9 +1413,14 @@ const MONTHLY_RECAP_KEYS = ['pernikahan','perceraian','keluarnegeri'];
 
 function manualFieldsHTML(catKey){
   return `
-          <div class="field"><label>Nama</label>
-            <input type="text" id="manualNama_${catKey}" list="dl_manualNama_${catKey}" autocomplete="off">
+          <div class="field">
+            <label>Nama</label>
+            <div class="employee-search-row">
+              <input type="text" id="manualNama_${catKey}" list="dl_manualNama_${catKey}" autocomplete="off" placeholder="Masukkan nama">
+              <button type="button" class="btn-add-employee" id="btnAddManualName_${catKey}" title="Tambahkan nama">+</button>
+            </div>
             <datalist id="dl_manualNama_${catKey}"></datalist>
+            <div class="bulk-employee-list" id="bulkManualList_${catKey}"></div>
           </div>
           <div class="field"><label>NIP / Keterangan (mis. Alumni / Peserta Magang)</label>
             <input type="text" id="manualNip_${catKey}" list="dl_manualNip_${catKey}" autocomplete="off">
@@ -1466,9 +1449,10 @@ function categoryFormBodyHTML(cat){
         <div class="field-grid">
           <div class="field full employee-search">
             <label>Cari Pegawai (nama / NIP)</label>
-            <input type="text" id="search_${cat.key}" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+            <div class="employee-search-row"><input type="text" id="search_${cat.key}" autocomplete="off" placeholder="Ketik minimal 2 huruf..."><button type="button" class="btn-add-employee" id="btnAddEmployee_${cat.key}">+</button></div>
             <div class="employee-results" id="results_${cat.key}" style="display:none;"></div>
             <div class="selected-employee" id="selected_${cat.key}"></div>
+              <div class="bulk-employee-list" id="bulkEmployeeList_${cat.key}"></div>
           </div>
         </div>
       </div>
@@ -1538,6 +1522,32 @@ function panelCategoryWithMonthlyRekapHTML(cat){
   </section>`;
 }
 
+function addEmployeeToBulk(cat){
+  if(!state.bulkEmployees[cat.key]) state.bulkEmployees[cat.key]=[];
+  const emp=state.selectedEmployee[cat.key];
+  if(!emp){showBanner(`formBanner_${cat.key}`,'warn','Pilih pegawai terlebih dahulu, kemudian tekan tombol +.');return;}
+  const exists=state.bulkEmployees[cat.key].some(e=>String(e.nip||'').trim()===String(emp.nip||'').trim()&&String(e.nama||'').trim().toLowerCase()===String(emp.nama||'').trim().toLowerCase());
+  if(exists){showBanner(`formBanner_${cat.key}`,'warn',`${emp.nama} sudah ada dalam daftar.`);return;}
+  state.bulkEmployees[cat.key].push({...emp}); renderBulkEmployeeList(cat);
+  document.getElementById(`search_${cat.key}`).value=''; document.getElementById(`selected_${cat.key}`).textContent=''; state.selectedEmployee[cat.key]=null;
+}
+function renderBulkEmployeeList(cat){
+  const box=document.getElementById(`bulkEmployeeList_${cat.key}`); if(!box)return; const list=state.bulkEmployees[cat.key]||[];
+  box.innerHTML=list.length?`<div style="font-weight:700;margin-bottom:5px;">Daftar Pegawai (${list.length})</div>`+list.map((e,i)=>`<div class="bulk-employee-item"><div><strong>${dashboardEsc(e.nama)}</strong>${e.nip?` — ${dashboardEsc(e.nip)}`:''}</div><button type="button" class="bulk-employee-remove" data-remove-bulk="${i}">×</button></div>`).join(''):'';
+  box.querySelectorAll('[data-remove-bulk]').forEach(b=>b.onclick=()=>{state.bulkEmployees[cat.key].splice(+b.dataset.removeBulk,1);renderBulkEmployeeList(cat);});
+}
+function addManualNameToBulk(cat){
+  if(!state.bulkManualNames[cat.key])state.bulkManualNames[cat.key]=[]; const input=document.getElementById(`manualNama_${cat.key}`); const nama=input.value.trim();
+  if(!nama){showBanner(`formBanner_${cat.key}`,'warn','Masukkan nama terlebih dahulu, kemudian tekan tombol +.');return;}
+  if(state.bulkManualNames[cat.key].some(n=>n.toLowerCase()===nama.toLowerCase())){showBanner(`formBanner_${cat.key}`,'warn',`${nama} sudah ada dalam daftar.`);return;}
+  state.bulkManualNames[cat.key].push(nama); input.value=''; renderBulkManualList(cat);
+}
+function renderBulkManualList(cat){
+  const box=document.getElementById(`bulkManualList_${cat.key}`); if(!box)return; const list=state.bulkManualNames[cat.key]||[];
+  box.innerHTML=list.length?`<div style="font-weight:700;margin-bottom:5px;">Daftar Nama (${list.length})</div>`+list.map((n,i)=>`<div class="bulk-employee-item"><div><strong>${dashboardEsc(n)}</strong></div><button type="button" class="bulk-employee-remove" data-remove-manual="${i}">×</button></div>`).join(''):'';
+  box.querySelectorAll('[data-remove-manual]').forEach(b=>b.onclick=()=>{state.bulkManualNames[cat.key].splice(+b.dataset.removeManual,1);renderBulkManualList(cat);});
+}
+
 function wireCategoryPanel(cat){
   const manualCheckbox = document.getElementById(`manual_${cat.key}`);
   manualCheckbox.addEventListener('change', ()=>{
@@ -1548,6 +1558,13 @@ function wireCategoryPanel(cat){
 
   const searchInput = document.getElementById(`search_${cat.key}`);
   const resultsBox = document.getElementById(`results_${cat.key}`);
+  if(!state.bulkEmployees[cat.key]) state.bulkEmployees[cat.key]=[];
+  if(!state.bulkManualNames[cat.key]) state.bulkManualNames[cat.key]=[];
+  const addEmployeeButton=document.getElementById(`btnAddEmployee_${cat.key}`);
+  if(addEmployeeButton) addEmployeeButton.addEventListener('click',()=>addEmployeeToBulk(cat));
+  const addManualButton=document.getElementById(`btnAddManualName_${cat.key}`);
+  if(addManualButton) addManualButton.addEventListener('click',()=>addManualNameToBulk(cat));
+  renderBulkEmployeeList(cat); renderBulkManualList(cat);
   searchInput.addEventListener('input', ()=>{
     const q = searchInput.value.trim().toLowerCase();
     if(q.length < 2){ resultsBox.style.display='none'; return; }
@@ -1585,54 +1602,38 @@ function resetCategoryForm(cat){
   cat.fields.forEach(f=> document.getElementById(`f_${cat.key}_${f.id}`).value = '');
   document.getElementById(`catatan_${cat.key}`).value = '';
   state.selectedEmployee[cat.key] = null;
+  state.bulkEmployees[cat.key]=[]; state.bulkManualNames[cat.key]=[];
+  renderBulkEmployeeList(cat); renderBulkManualList(cat);
   document.getElementById(`formBanner_${cat.key}`).innerHTML = '';
 }
 
 async function saveRecord(cat){
-  const isManual = document.getElementById(`manual_${cat.key}`).checked;
-  let nama, nip, jabatan, unit, sumber;
+  const isManual=document.getElementById(`manual_${cat.key}`).checked;
+  let employeesToSave=[];
   if(isManual){
-    nama = document.getElementById(`manualNama_${cat.key}`).value.trim();
-    nip = document.getElementById(`manualNip_${cat.key}`).value.trim();
-    jabatan = document.getElementById(`manualJabatan_${cat.key}`).value.trim();
-    unit = document.getElementById(`manualUnit_${cat.key}`).value.trim();
-    sumber = 'Manual';
-  } else {
-    const emp = state.selectedEmployee[cat.key];
-    if(!emp){ showBanner(`formBanner_${cat.key}`,'warn','Pilih pegawai terlebih dahulu, atau centang input manual.'); return; }
-    nama = emp.nama; nip = emp.nip; jabatan = emp.jabatan; unit = emp.unit;
-    sumber = 'Data Pegawai';
+    const names=state.bulkManualNames[cat.key]||[]; const current=document.getElementById(`manualNama_${cat.key}`).value.trim();
+    if(current&&!names.some(n=>n.toLowerCase()===current.toLowerCase())) names.push(current);
+    if(!names.length){showBanner(`formBanner_${cat.key}`,'warn','Tambahkan minimal satu nama dengan tombol +.');return;}
+    const nip=document.getElementById(`manualNip_${cat.key}`).value.trim(),jabatan=document.getElementById(`manualJabatan_${cat.key}`).value.trim(),unit=document.getElementById(`manualUnit_${cat.key}`).value.trim();
+    employeesToSave=names.map(nama=>({nama,nip,jabatan,unit,sumber:'Manual'}));
+  }else{
+    employeesToSave=state.bulkEmployees[cat.key]||[];
+    if(!employeesToSave.length&&state.selectedEmployee[cat.key]) employeesToSave=[{...state.selectedEmployee[cat.key],sumber:'Data Pegawai'}];
+    if(!employeesToSave.length){showBanner(`formBanner_${cat.key}`,'warn','Tambahkan minimal satu pegawai dengan tombol +.');return;}
   }
-  if(!nama){ showBanner(`formBanner_${cat.key}`,'warn','Nama wajib diisi.'); return; }
-  if(!state.settings.webAppUrl){ showBanner(`formBanner_${cat.key}`,'warn','URL Web App belum diatur — buka tab Pengaturan terlebih dahulu agar data bisa tersimpan realtime.'); return; }
-
-  const detail = {};
-  cat.fields.forEach(f=> detail[f.id] = document.getElementById(`f_${cat.key}_${f.id}`).value);
-
-  const record = {
-    id: genId(),
-    kategoriKey: cat.key,
-    kategoriLabel: cat.label,
-    sheet: cat.sheet,
-    sumber, nama, nip, jabatan, unit,
-    detail,
-    catatan: document.getElementById(`catatan_${cat.key}`).value.trim(),
-    tanggalInput: new Date().toISOString(),
-  };
-
-  const btn = document.querySelector(`[data-save="${cat.key}"]`);
-  btn.disabled = true;
-  showBanner(`formBanner_${cat.key}`,'info','Menyimpan ke Google Sheets...');
-  const ok = await pushRecordToSheets(record);
-  btn.disabled = false;
-  if(!ok){
-    showBanner(`formBanner_${cat.key}`,'warn','Gagal menyimpan ke Google Sheets. Periksa koneksi internet Anda, lalu coba lagi. Data belum tersimpan.');
-    return;
+  if(!state.settings.webAppUrl){showBanner(`formBanner_${cat.key}`,'warn','URL Web App belum diatur — buka tab Pengaturan terlebih dahulu agar data bisa tersimpan realtime.');return;}
+  const detail={}; cat.fields.forEach(f=>detail[f.id]=document.getElementById(`f_${cat.key}_${f.id}`).value);
+  const catatan=document.getElementById(`catatan_${cat.key}`).value.trim(); const btn=document.querySelector(`[data-save="${cat.key}"]`); btn.disabled=true;
+  showBanner(`formBanner_${cat.key}`,'info',`Menyimpan ${employeesToSave.length} data ${cat.label} ke Google Sheets...`);
+  let berhasil=0;
+  for(const emp of employeesToSave){
+    const record={id:genId(),kategoriKey:cat.key,kategoriLabel:cat.label,sheet:cat.sheet,sumber:emp.sumber||'Data Pegawai',nama:emp.nama||'',nip:emp.nip||'',jabatan:emp.jabatan||'',unit:emp.unit||'',detail:{...detail},catatan,tanggalInput:new Date().toISOString()};
+    if(await pushRecordToSheets(record)) berhasil++; else console.error('Gagal menyimpan data untuk:',emp.nama);
   }
-  await fetchAllRecordsFromSheets();
-  showBanner(`formBanner_${cat.key}`,'ok', `Data ${cat.label} untuk ${nama} berhasil disimpan.`);
-  resetCategoryForm(cat);
-  if(MONTHLY_RECAP_KEYS.includes(cat.key)) renderMonthlyRekap(cat, true);
+  btn.disabled=false;
+  if(berhasil!==employeesToSave.length){showBanner(`formBanner_${cat.key}`,'warn',`${berhasil} dari ${employeesToSave.length} data berhasil disimpan. Periksa koneksi kemudian simpan kembali data yang gagal.`);await fetchAllRecordsFromSheets();return;}
+  await fetchAllRecordsFromSheets(); showBanner(`formBanner_${cat.key}`,'ok',`${berhasil} data ${cat.label} berhasil disimpan ke Google Sheets dengan keterangan yang sama.`); resetCategoryForm(cat);
+  if(MONTHLY_RECAP_KEYS.includes(cat.key)) renderMonthlyRekap(cat,true);
 }
 
 /* =========================================================
@@ -1725,7 +1726,7 @@ function panelCutiHTML(){
           <div class="field-grid">
             <div class="field full employee-search">
               <label>Cari Pegawai (nama / NIP)</label>
-              <input type="text" id="search_cuti" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+              <div class="employee-search-row"><input type="text" id="search_cuti" autocomplete="off" placeholder="Ketik minimal 2 huruf..."><button type="button" class="btn-add-employee" id="btnAddEmployee_cuti">+</button></div>
               <div class="employee-results" id="results_cuti" style="display:none;"></div>
               <div class="selected-employee" id="selected_cuti"></div>
             </div>
@@ -1845,7 +1846,7 @@ function panelCutiHTML(){
           <div class="field-grid">
             <div class="field full employee-search">
               <label>Cari Pegawai (nama / NIP)</label>
-              <input type="text" id="searchPerorangan_cuti" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+              <div class="employee-search-row"><input type="text" id="searchPerorangan_cuti" autocomplete="off" placeholder="Ketik minimal 2 huruf..."><button type="button" class="btn-add-employee" id="btnAddEmployeePerorangan_cuti">+</button></div>
               <div class="employee-results" id="resultsPerorangan_cuti" style="display:none;"></div>
             </div>
           </div>
@@ -2544,9 +2545,13 @@ function panelUsulPangkatHTML(){
           <div class="field-grid">
             <div class="field full employee-search">
               <label>Cari Pegawai (nama / NIP)</label>
-              <input type="text" id="search_usulpangkat" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+              <div class="employee-search-row">
+                <input type="text" id="search_usulpangkat" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+                <button type="button" class="btn-add-employee" id="btnAddEmployee_usulpangkat" title="Tambahkan pegawai">+</button>
+              </div>
               <div class="employee-results" id="results_usulpangkat" style="display:none;"></div>
               <div class="selected-employee" id="selected_usulpangkat"></div>
+              <div class="bulk-employee-list" id="bulkEmployeeList_usulpangkat"></div>
             </div>
           </div>
         </div>
@@ -3257,12 +3262,68 @@ function dashboardLineSVG(labels,values,height=270){
   return out+`</svg>`;
 }
 function dashboardMiniBarSVG(values){
-  const W=520,H=120,pad={l:4,r:4,t:8,b:24},cw=W-pad.l-pad.r,ch=H-pad.t-pad.b,max=Math.max(1,...values),step=cw/12,bw=Math.max(5,step*.62);
-  let out=`<svg class="mini-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none">`;
-  values.forEach((v,i)=>{const x=pad.l+i*step+(step-bw)/2,y=pad.t+ch-(v/max)*ch,h=(v/max)*ch;out+=`<rect x="${x}" y="${y}" width="${bw}" height="${Math.max(2,h)}" rx="3" fill="currentColor" opacity=".78"><title>${BULAN_NAMES[i]}: ${v}</title></rect>`});
-  [0,3,6,9].forEach(i=>out+=`<text x="${pad.l+i*step+step/2}" y="${H-6}" text-anchor="middle" font-size="10" fill="currentColor" opacity=".55">${BULAN_NAMES[i].slice(0,3)}</text>`);
+  const W=520,H=150;
+  const pad={l:4,r:4,t:24,b:28};
+  const cw=W-pad.l-pad.r;
+  const ch=H-pad.t-pad.b;
+
+  const max=Math.max(1,...values);
+  const step=cw/12;
+  const bw=Math.max(6,step*.62);
+
+  let out=`<svg class="mini-svg" viewBox="0 0 ${W} ${H}" preserveAspectRatio="none" role="img">`;
+
+  values.forEach((v,i)=>{
+    const x=pad.l+i*step+(step-bw)/2;
+    const barHeight=(v/max)*ch;
+    const y=pad.t+ch-barHeight;
+
+    // Batang
+    out+=`
+      <rect
+        x="${x}"
+        y="${y}"
+        width="${bw}"
+        height="${Math.max(2,barHeight)}"
+        rx="3"
+        fill="currentColor"
+        opacity=".78">
+        <title>${BULAN_NAMES[i]}: ${v}</title>
+      </rect>
+    `;
+
+    // Angka jumlah di atas batang
+    const angkaY=Math.max(12,y-5);
+
+    out+=`
+      <text
+        x="${x+bw/2}"
+        y="${angkaY}"
+        text-anchor="middle"
+        font-size="10"
+        font-weight="700"
+        fill="currentColor">
+        ${v}
+      </text>
+    `;
+
+    // Semua nama bulan, disingkat 3 huruf
+    out+=`
+      <text
+        x="${x+bw/2}"
+        y="${H-8}"
+        text-anchor="middle"
+        font-size="9.5"
+        fill="currentColor"
+        opacity=".65">
+        ${dashboardEsc(BULAN_NAMES[i].slice(0,3))}
+      </text>
+    `;
+  });
+
   return out+'</svg>';
 }
+
 function panelDashboardHTML(){
   return `
   <section class="panel active" id="panel-dashboard">
@@ -3636,7 +3697,7 @@ function panelPengaturanHTML(){
       <div class="field-grid">
         <div class="field">
           <label>Nama Sheet Data Pegawai</label>
-          <input type="text" id="inpSheetPegawai" placeholder="Pegawai">
+          <input type="text" id="inpSheetPegawai" placeholder="Worksheet">
         </div>
       </div>
       <div class="btn-row">
@@ -3702,7 +3763,7 @@ async function init(){
   state.records = await Store.get('records', []);
   populateSuggestionDatalists();
   populateManualSuggestionDatalists();
-  state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Sheet1' });
+  state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Worksheet' });
   if(!state.settings.webAppUrl && DEFAULT_WEB_APP_URL && DEFAULT_WEB_APP_URL.startsWith('http')){
     state.settings.webAppUrl = DEFAULT_WEB_APP_URL;
     Store.set('settings', state.settings);
@@ -3713,7 +3774,7 @@ async function init(){
   refreshAllReportYearOptions();
 
   document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
-  document.getElementById('inpSheetPegawai').value = state.settings.sheetPegawai || 'Pegawai';
+  document.getElementById('inpSheetPegawai').value = state.settings.sheetPegawai || 'Worksheet';
   renderEmployeeSummary();
 
   document.getElementById('btnFetchPegawai').addEventListener('click', fetchPegawaiFromGoogle);
@@ -3748,7 +3809,7 @@ async function init(){
   document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
     state.settings = {
       webAppUrl: document.getElementById('inpWebAppUrl').value.trim(),
-      sheetPegawai: document.getElementById('inpSheetPegawai') ? document.getElementById('inpSheetPegawai').value.trim() : 'Sheet1'
+      sheetPegawai: document.getElementById('inpSheetPegawai') ? document.getElementById('inpSheetPegawai').value.trim() : 'Worksheet'
     };
     Store.set('settings', state.settings);
     showBanner('settingsBanner','ok','Pengaturan tersimpan. Memuat data realtime...');
@@ -3759,7 +3820,7 @@ async function init(){
     if(!url){ showBanner('settingsBanner','warn','Isi URL Web App terlebih dahulu.'); return; }
     showBanner('settingsBanner','info','Menguji koneksi...');
     try{
-      const res = await fetch(`${url}?action=getPegawai&sheet=${encodeURIComponent(state.settings.sheetPegawai||'Pegawai')}`);
+      const res = await fetch(`${url}?action=getPegawai&sheet=${encodeURIComponent(state.settings.sheetPegawai||'Worksheet')}`);
       const json = await res.json();
       if(json.error) showBanner('settingsBanner','warn','Terhubung, tetapi Apps Script mengembalikan error: ' + json.error);
       else showBanner('settingsBanner','ok','Koneksi berhasil! Web App merespons dengan baik.');
