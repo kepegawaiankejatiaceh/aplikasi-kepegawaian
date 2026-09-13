@@ -728,7 +728,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbxvzMLylsaR2GXkQhqN7LCdSn2-qZmuDdDWZ40MsP8xPxAo2zQ1w_g1EPkc23qJNDfUGg/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwB7rgPE79XYzF5TGXq4JLQI9U-trVUMA7Cui64xjaDJi8pds7Y1UoMvvJ7b4dBSm1f0g/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -1692,6 +1692,22 @@ function exportMonthlyRekapPDF(cat){ exportTableToPDF(`rekapTable_${cat.key}`, `
    MODUL: IZIN CUTI (Permohonan, Cuti Berjalan, Rekap, Pengaturan)
    ========================================================= */
 const BIDANG_OPTIONS = ['Eselon II dan III','Pembinaan','Intel','Pidum','Pidsus','Datun','Pidmil','Aset','Pengawasan','Tata Usaha'];
+
+/** Warna khusus header tabel Rekap Cuti > Bidang, satu warna per Bidang.
+ *  `text` dipilih otomatis (putih/gelap) supaya tulisan tetap terbaca
+ *  di atas warna latar masing-masing. */
+const BIDANG_COLORS = {
+  'Eselon II dan III': { bg:'#FFFFFF', text:'#1A1A1A' },
+  'Pembinaan':         { bg:'#FFFF00', text:'#1A1A1A' },
+  'Intel':             { bg:'#007504', text:'#FFFFFF' },
+  'Pidum':             { bg:'#FF0000', text:'#FFFFFF' },
+  'Pidsus':            { bg:'#FF0080', text:'#FFFFFF' },
+  'Datun':             { bg:'#FFE566', text:'#1A1A1A' },
+  'Pidmil':            { bg:'#00B005', text:'#FFFFFF' },
+  'Aset':              { bg:'#3D3D3D', text:'#FFFFFF' },
+  'Pengawasan':        { bg:'#0092D1', text:'#FFFFFF' },
+  'Tata Usaha':        { bg:'#E7E7E7', text:'#1A1A1A' }
+};
 /** Nama satker yang mewakili "Kejati Aceh" pada Ringkasan Kategori — dibandingkan
  *  tanpa memandang huruf besar/kecil, jadi "KEJAKSAAN TINGGI ACEH" atau
  *  "Kejaksaan Tinggi Aceh" pada data pegawai akan sama-sama cocok. */
@@ -2245,9 +2261,13 @@ function renderRekapBidang(){
   const container = document.getElementById('rekapBidangGroups');
   container.innerHTML = groups.map(b=>{
     const rows = all.filter(r=> r.detail.bidang === b);
+    const c = BIDANG_COLORS[b] || { bg:'#EFEBE0', text:'#1A1A1A' };
+    const thStyle = `background:${c.bg};color:${c.text};`;
+    const headerCols = ['Nama','NIP','Jenis Cuti','Tgl Mulai','Tgl Selesai','Jml Hari','Status'];
+    const headerRow = `<tr>${headerCols.map(h=>`<th style="${thStyle}">${h}</th>`).join('')}</tr>`;
     const tableHTML = rows.length
       ? `<div class="preview-wrap"><table class="data-table">
-          <tr><th>Nama</th><th>NIP</th><th>Jenis Cuti</th><th>Tgl Mulai</th><th>Tgl Selesai</th><th>Jml Hari</th><th>Status</th></tr>
+          ${headerRow}
           ${rows.slice().reverse().map(r=>`<tr>
             <td>${r.nama}</td><td>${r.nip||'-'}</td><td>${r.detail.jenisCuti||'-'}</td>
             <td>${formatTanggalID(r.detail.tglMulai)}</td><td>${formatTanggalID(r.detail.tglSelesai)}</td>
