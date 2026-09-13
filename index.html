@@ -591,17 +591,11 @@ const CATEGORIES = [
     { id:'tglPengajuanPegawai', label:'Tanggal Pengajuan Pegawai', type:'date' },
     { id:'tglPersetujuanPimpinan', label:'Tanggal Persetujuan Pimpinan', type:'date' },
     { id:'nomorSurat', label:'Nomor Surat', type:'text' },
-    { id:'statusKep', label:'Status KEP Kejagung', type:'select', options:['Disetujui','Ditolak'] },
-    { id:'nomorKep', label:'Nomor KEP', type:'text' },
-    { id:'tanggalKep', label:'Tanggal KEP', type:'date' },
   ]},
   { key:'perceraian', label:'Izin Perceraian', sheet:'Izin Perceraian', fields:[
     { id:'tglPengajuanPegawai', label:'Tanggal Pengajuan Pegawai', type:'date' },
     { id:'tglPersetujuanPimpinan', label:'Tanggal Persetujuan Pimpinan', type:'date' },
     { id:'nomorSurat', label:'Nomor Surat', type:'text' },
-    { id:'statusKep', label:'Status KEP Kejagung', type:'select', options:['Disetujui','Ditolak'] },
-    { id:'nomorKep', label:'Nomor KEP', type:'text' },
-    { id:'tanggalKep', label:'Tanggal KEP', type:'date' },
   ]},
   { key:'keluarnegeri', label:'Izin Keluar Negeri', sheet:'Izin Keluar Negeri', fields:[
     { id:'tglPengajuanPegawai', label:'Tanggal Pengajuan Pegawai', type:'date' },
@@ -1701,12 +1695,11 @@ function renderMonthlyRekap(cat, rebuildOptions){
   const list = records.filter(r=> !filterMonth || monthKeyFromDate(r.detail.tglPersetujuanPimpinan) === filterMonth);
   const table = document.getElementById(`rekapTable_${cat.key}`);
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data pada periode ini.</td></tr>'; return; }
-  table.innerHTML = '<tr><th>Nama</th><th>NIP/Ket.</th><th>Tgl Pengajuan Pegawai</th><th>Tgl Persetujuan Pimpinan</th><th>Nomor Surat</th><th>Status KEP</th><th>Nomor KEP</th><th>Tanggal KEP</th></tr>' +
+  table.innerHTML = '<tr><th>Nama</th><th>NIP/Ket.</th><th>Tgl Pengajuan Pegawai</th><th>Tgl Persetujuan Pimpinan</th><th>Nomor Surat</th></tr>' +
     list.slice().sort((a,b)=> (b.detail.tglPersetujuanPimpinan||'').localeCompare(a.detail.tglPersetujuanPimpinan||'')).map(r=>`<tr>
       <td>${r.nama}</td><td>${r.nip||'-'}</td>
       <td>${formatTanggalID(r.detail.tglPengajuanPegawai)}</td><td>${formatTanggalID(r.detail.tglPersetujuanPimpinan)}</td>
-      <td>${r.detail.nomorSurat||'-'}</td><td>${r.detail.statusKep||'-'}</td>
-      <td>${r.detail.nomorKep||'-'}</td><td>${formatTanggalID(r.detail.tanggalKep)}</td>
+      <td>${r.detail.nomorSurat||'-'}</td>
     </tr>`).join('');
 }
 function exportMonthlyRekapExcel(cat){ exportTableToExcel(`rekapTable_${cat.key}`, `Rekap_${cat.sheet.replace(/\s+/g,'_')}_${todayStamp()}.xlsx`, cat.label); }
