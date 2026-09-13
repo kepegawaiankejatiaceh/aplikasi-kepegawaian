@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Aplikasi Administrasi Kepegawaian</title>
+<title>Kinerja Subbag Kepegawaian</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -521,9 +521,11 @@ nav.tabs button.active .nav-icon {
 <header class="app-header">
   <div class="brand">
     <h1>Administrasi Kepegawaian</h1>
-    <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
+    <div class="subtitle">Pencatatan &amp; Laporan</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
+  <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
+  <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">data mysimkari &#8599;</a>
     <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
   </div>
 </header>
@@ -1236,6 +1238,7 @@ async function refreshFromSheetsAndRender(){
     fetchSisaCutiFromSheets(),
     fetchRekapPegawaiFromSheets(),
   ]);
+  if(okRecords) await autoMarkCutiSelesai(); // tandai cuti yang sudah lewat tanggal selesainya
   updateSyncIndicator(okRecords ? 'ok' : 'error');
   rerenderVisibleData();
 }
@@ -1712,9 +1715,14 @@ const BIDANG_COLORS = {
  *  tanpa memandang huruf besar/kecil, jadi "KEJAKSAAN TINGGI ACEH" atau
  *  "Kejaksaan Tinggi Aceh" pada data pegawai akan sama-sama cocok. */
 const SATKER_KEJATI_NAME = 'kejaksaan tinggi aceh';
-const CUTI_STATUS_OPTIONS = ['Pengajuan','Disetujui','Ditolak','Ditunda','Dibatalkan','Berjalan'];
+const CUTI_STATUS_OPTIONS = ['Pengajuan','Disetujui','Ditolak','Ditunda','Dibatalkan','Berjalan','Selesai'];
 const STATUS_AWAL_OPTIONS = ['Pengajuan','Disetujui'];
-const CUTI_DEDUCTING_STATUSES = ['Disetujui','Berjalan']; // status yang memotong sisa cuti
+const CUTI_DEDUCTING_STATUSES = ['Disetujui','Berjalan','Selesai']; // status yang memotong sisa cuti
+// Status yang, kalau tanggal selesainya sudah lewat hari ini, otomatis ditandai "Selesai".
+// "Selesai" tetap dianggap memotong saldo (lihat CUTI_DEDUCTING_STATUSES) karena
+// potongannya memang sudah terjadi sejak status Disetujui/Berjalan -- hanya labelnya
+// yang berubah supaya rekap membedakan cuti yang sudah rampung dari yang masih berjalan.
+const CUTI_AUTO_SELESAI_FROM = ['Disetujui','Berjalan'];
 
 function panelCutiHTML(){
   const cat = CATEGORIES.find(c=>c.key==='cuti');
@@ -1974,12 +1982,56 @@ function restoreSisaCuti(nip, breakdown){
 function allCutiRecords(){
   return state.records.filter(r=> r.kategoriKey === 'cuti');
 }
+/** Mengubah teks tanggal polos "YYYY-MM-DD" (boleh diikuti bagian jam, akan diabaikan)
+ *  jadi objek Date pada tengah malam waktu LOKAL, bukan tengah malam UTC.
+ *  PENTING: new Date("2026-09-13") oleh JavaScript selalu ditafsirkan sebagai tengah
+ *  malam UTC. Untuk zona waktu Indonesia (UTC+7), itu sama dengan jam 07:00 pagi
+ *  waktu lokal -- sehingga perbandingan "apakah hari ini >= tanggal mulai" bisa salah
+ *  selama beberapa jam di awal hari tersebut. Fungsi ini membaca komponen
+ *  tahun/bulan/tanggal-nya langsung sebagai teks, lalu membuat Date lewat konstruktor
+ *  (tahun, bulan, tanggal) yang selalu dianggap waktu LOKAL, jadi tidak ada pergeseran. */
+function parseDateOnlyLocal(str){
+  if(!str) return null;
+  const s = String(str).slice(0, 10); // ambil bagian "YYYY-MM-DD" saja
+  const parts = s.split('-');
+  if(parts.length !== 3) return null;
+  const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10), d = parseInt(parts[2], 10);
+  if(!y || !m || !d) return null;
+  return new Date(y, m - 1, d);
+}
+
 function isCutiSedangBerjalanTanggal(r){
   const today = new Date(); today.setHours(0,0,0,0);
-  const mulai = r.detail.tglMulai ? new Date(r.detail.tglMulai) : null;
-  const selesai = r.detail.tglSelesai ? new Date(r.detail.tglSelesai) : null;
+  const mulai = parseDateOnlyLocal(r.detail.tglMulai);
+  const selesai = parseDateOnlyLocal(r.detail.tglSelesai);
   if(!mulai || !selesai) return false;
   return today >= mulai && today <= selesai;
+}
+
+/** Menandai otomatis cuti berstatus Disetujui/Berjalan sebagai "Selesai" begitu
+ *  Tanggal Selesai-nya sudah lewat hari ini. Saldo cuti TIDAK ikut berubah --
+ *  potongannya memang sudah terjadi sejak disetujui, dan "Selesai" tetap termasuk
+ *  status yang memotong (lihat CUTI_DEDUCTING_STATUSES) supaya saldo tetap konsisten.
+ *  Dipanggil setiap kali data disegarkan dari Google Sheets (lihat refreshFromSheetsAndRender),
+ *  jadi berjalan otomatis tanpa perlu tombol atau aksi manual dari pengguna. */
+async function autoMarkCutiSelesai(){
+  const today = new Date(); today.setHours(0,0,0,0);
+  const toUpdate = allCutiRecords().filter(r=>{
+    if(!CUTI_AUTO_SELESAI_FROM.includes(r.detail.statusCuti)) return false;
+    const selesai = parseDateOnlyLocal(r.detail.tglSelesai);
+    if(!selesai) return false;
+    return selesai < today;
+  });
+  if(!toUpdate.length) return false;
+
+  for(const rec of toUpdate){
+    const prevStatus = rec.detail.statusCuti;
+    rec.detail.statusCuti = 'Selesai';
+    const ok = await pushRecordToSheets(rec);
+    if(!ok) rec.detail.statusCuti = prevStatus; // gagal simpan -> batalkan perubahan lokal, dicoba lagi di polling berikutnya
+  }
+  Store.set('records', state.records);
+  return true;
 }
 
 /** Menampilkan tanggal dalam format DD-MM-YYYY, apa pun bentuk aslinya
