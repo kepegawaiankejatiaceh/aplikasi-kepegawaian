@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Kinerja Subbag Kepegawaian</title>
+<title>Aplikasi Administrasi Kepegawaian</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,400;8..60,600;8..60,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
@@ -309,6 +309,27 @@
   .selected-employee{
     font-size:12.5px; color:var(--success); margin-top:4px;
   }
+  /* Dropdown checklist untuk Filter Status (multi-pilih) di Rekap Cuti > Bidang */
+  .multiselect{ position:relative; }
+  .multiselect-trigger{
+    width:100%; text-align:left; background:#fff; cursor:pointer;
+    border:1px solid var(--line-strong); border-radius:var(--radius);
+    padding:9px 12px; font-size:13px; font-family:inherit; color:var(--ink);
+  }
+  .multiselect-trigger:hover{ border-color:var(--accent); }
+  .multiselect-panel{
+    position:absolute; z-index:6; top:100%; left:0; right:0; margin-top:4px;
+    background:#fff; border:1px solid var(--line-strong); border-radius:var(--radius);
+    max-height:220px; overflow-y:auto; box-shadow:0 4px 10px rgba(0,0,0,0.08);
+    padding:6px 0;
+  }
+  .multiselect-panel label{
+    display:flex; align-items:center; gap:8px;
+    padding:7px 12px; font-size:13px; font-weight:400; cursor:pointer;
+  }
+  .multiselect-panel label:hover{ background:var(--accent-soft); }
+  .multiselect-panel input{ width:15px; height:15px; }
+  .multiselect-panel .ms-divider{ border-top:1px solid var(--line); margin:4px 0; }
   table.data-table{
     width:100%; border-collapse:separate; border-spacing:0; font-size:13px;
   }
@@ -521,10 +542,10 @@ nav.tabs button.active .nav-icon {
 <header class="app-header">
   <div class="brand">
     <h1>Administrasi Kepegawaian</h1>
-    <div class="subtitle">Pencatatan &amp; Laporan</div>
+    <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-  <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
+    <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
   <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">data mysimkari &#8599;</a>
     <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
   </div>
@@ -1852,10 +1873,39 @@ function panelCutiHTML(){
             </div>
             <div class="field">
               <label>Filter Status</label>
-              <select id="filterStatusBidangCuti">
-                <option value="">Semua Status</option>
-                ${CUTI_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
+              <div class="multiselect" id="msStatusBidangCuti">
+                <button type="button" class="multiselect-trigger" id="msStatusBidangCutiBtn">Semua Status</button>
+                <div class="multiselect-panel" id="msStatusBidangCutiPanel" style="display:none;">
+                  <label><input type="checkbox" value="" id="msStatusBidangCutiAll" checked> Semua Status</label>
+                  <div class="ms-divider"></div>
+                  ${CUTI_STATUS_OPTIONS.map(s=>`<label><input type="checkbox" class="msStatusBidangCutiChk" value="${s}"> ${s}</label>`).join('')}
+                </div>
+              </div>
+            </div>
+            <div class="field">
+              <label>Filter Periode</label>
+              <select id="filterPeriodeModeBidangCuti">
+                <option value="">Semua Tanggal</option>
+                <option value="range">Rentang Tanggal</option>
+                <option value="bulan">Bulan</option>
               </select>
+            </div>
+            <div class="field" id="fieldRangeAwalBidangCuti" style="display:none;">
+              <label>Tanggal Awal</label>
+              <input type="date" id="filterTglAwalBidangCuti">
+            </div>
+            <div class="field" id="fieldRangeAkhirBidangCuti" style="display:none;">
+              <label>Tanggal Akhir</label>
+              <input type="date" id="filterTglAkhirBidangCuti">
+            </div>
+            <div class="field" id="fieldBulanBidangCuti" style="display:none;">
+              <label>Pilih Bulan</label>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <input type="month" id="filterBulanBidangCuti" disabled>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px;">
+                  <input type="checkbox" id="filterBulanSemuaBidangCuti" checked> Tampilkan Seluruh Bulan
+                </label>
+              </div>
             </div>
           </div>
           <div class="summary-cards" id="rekapBidangSummary"></div>
@@ -2297,19 +2347,71 @@ function renderRekapStatus(){
     </tr>`).join('');
 }
 
+/** Ubah nilai <input type="month"> ("YYYY-MM") jadi rentang tanggal awal & akhir bulan itu. */
+function monthInputToRange(value){
+  if(!value) return null;
+  const parts = value.split('-');
+  const y = parseInt(parts[0], 10), m = parseInt(parts[1], 10);
+  if(!y || !m) return null;
+  return { start: new Date(y, m - 1, 1), end: new Date(y, m, 0) }; // end = hari terakhir bulan itu
+}
+
+/** true kalau rentang cuti [mulai,selesai] beririsan dengan filter periode [pStart,pEnd].
+ *  pStart/pEnd boleh null (artinya batas itu tidak dibatasi / tak terhingga). */
+function isWithinPeriodeFilter(mulai, selesai, pStart, pEnd){
+  if(!mulai || !selesai) return false;
+  if(pStart && selesai < pStart) return false;
+  if(pEnd && mulai > pEnd) return false;
+  return true;
+}
+
+/** Ambil daftar status yang dicentang pada dropdown Filter Status (Rekap Bidang).
+ *  Array kosong artinya "Semua Status" (tidak difilter). */
+function getSelectedStatusBidang(){
+  return Array.from(document.querySelectorAll('.msStatusBidangCutiChk:checked')).map(c=>c.value);
+}
+
+/** Menghitung data yang lolos filter Bidang/Status/Periode di Rekap Cuti > Bidang.
+ *  Dipakai bersama oleh renderRekapBidang() dan fungsi ekspor Excel/PDF, supaya hasil
+ *  ekspor selalu sama persis dengan yang sedang ditampilkan di layar. */
+function getRekapBidangFilteredData(){
+  const bidangFilter = document.getElementById('filterBidangCuti').value;
+  const statusFilter = getSelectedStatusBidang(); // array; kosong = semua status
+  const periodeMode = document.getElementById('filterPeriodeModeBidangCuti').value;
+
+  let pStart = null, pEnd = null;
+  if(periodeMode === 'range'){
+    const awalVal = document.getElementById('filterTglAwalBidangCuti').value;
+    const akhirVal = document.getElementById('filterTglAkhirBidangCuti').value;
+    pStart = awalVal ? parseDateOnlyLocal(awalVal) : null;
+    pEnd = akhirVal ? parseDateOnlyLocal(akhirVal) : null;
+  }else if(periodeMode === 'bulan'){
+    const tampilkanSemuaBulan = document.getElementById('filterBulanSemuaBidangCuti').checked;
+    if(!tampilkanSemuaBulan){
+      const range = monthInputToRange(document.getElementById('filterBulanBidangCuti').value);
+      if(range){ pStart = range.start; pEnd = range.end; }
+    }
+  }
+
+  const all = allCutiRecords().filter(r=>{
+    if(statusFilter.length && !statusFilter.includes(r.detail.statusCuti)) return false;
+    if((pStart || pEnd) && !isWithinPeriodeFilter(parseDateOnlyLocal(r.detail.tglMulai), parseDateOnlyLocal(r.detail.tglSelesai), pStart, pEnd)) return false;
+    return true;
+  });
+  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
+  return { all, groups };
+}
+
 /** Rekap Bidang: setiap Bidang ditampilkan sebagai tabel terpisah (bukan digabung
  *  jadi satu tabel besar), dengan filter Bidang & filter Status di sampingnya. */
 function renderRekapBidang(){
-  const bidangFilter = document.getElementById('filterBidangCuti').value;
-  const statusFilter = document.getElementById('filterStatusBidangCuti').value;
-  const all = allCutiRecords().filter(r=> !statusFilter || r.detail.statusCuti === statusFilter);
+  const { all, groups } = getRekapBidangFilteredData();
 
   document.getElementById('rekapBidangSummary').innerHTML = BIDANG_OPTIONS.map(b=>{
     const n = all.filter(r=> r.detail.bidang === b).length;
     return `<div class="summary-card"><div class="num">${n}</div><div class="lbl">${b}</div></div>`;
   }).join('');
 
-  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
   const container = document.getElementById('rekapBidangGroups');
   container.innerHTML = groups.map(b=>{
     const rows = all.filter(r=> r.detail.bidang === b);
@@ -2351,10 +2453,7 @@ function exportRekapPeroranganExcel(){ exportTableToExcel('rekapPeroranganTable'
 function exportRekapPeroranganPDF(){ exportTableToPDF('rekapPeroranganTable', `Rekap_Cuti_Perorangan_${todayStamp()}.pdf`, 'Rekap Cuti - Perorangan'); }
 
 function exportRekapBidangExcel(){
-  const bidangFilter = document.getElementById('filterBidangCuti').value;
-  const statusFilter = document.getElementById('filterStatusBidangCuti').value;
-  const all = allCutiRecords().filter(r=> !statusFilter || r.detail.statusCuti === statusFilter);
-  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
+  const { all, groups } = getRekapBidangFilteredData();
   const wb = XLSX.utils.book_new();
   groups.forEach(b=>{
     const rows = all.filter(r=> r.detail.bidang === b);
@@ -2367,10 +2466,7 @@ function exportRekapBidangExcel(){
   XLSX.writeFile(wb, `Rekap_Cuti_Bidang_${todayStamp()}.xlsx`);
 }
 function exportRekapBidangPDF(){
-  const bidangFilter = document.getElementById('filterBidangCuti').value;
-  const statusFilter = document.getElementById('filterStatusBidangCuti').value;
-  const all = allCutiRecords().filter(r=> !statusFilter || r.detail.statusCuti === statusFilter);
-  const groups = bidangFilter ? [bidangFilter] : BIDANG_OPTIONS;
+  const { all, groups } = getRekapBidangFilteredData();
   const { jsPDF } = window.jspdf;
   const doc = new jsPDF({ orientation:'landscape' });
   let wrote = false;
@@ -2553,6 +2649,73 @@ function wireCutiPengaturan(){
   document.getElementById('btnPushSisaCuti').addEventListener('click', pushSisaCutiToSheets);
 }
 
+/** Perbarui label tombol dropdown Filter Status (Rekap Bidang) sesuai jumlah/isi yang dicentang. */
+function updateStatusBidangTriggerLabel(){
+  const checked = getSelectedStatusBidang();
+  const btn = document.getElementById('msStatusBidangCutiBtn');
+  if(!checked.length) btn.textContent = 'Semua Status';
+  else if(checked.length <= 2) btn.textContent = checked.join(', ');
+  else btn.textContent = `${checked.length} Status dipilih`;
+}
+
+/** Pasang perilaku dropdown checklist Filter Status: buka/tutup panel, "Semua Status"
+ *  saling eksklusif dengan status individual, dan label tombol yang ikut berubah. */
+function wireStatusBidangMultiselect(){
+  const allChk = document.getElementById('msStatusBidangCutiAll');
+  const getChks = () => Array.from(document.querySelectorAll('.msStatusBidangCutiChk'));
+
+  allChk.addEventListener('change', ()=>{
+    if(allChk.checked) getChks().forEach(c=> c.checked = false);
+    updateStatusBidangTriggerLabel();
+    renderRekapBidang();
+  });
+  getChks().forEach(c=>{
+    c.addEventListener('change', ()=>{
+      if(c.checked) allChk.checked = false;
+      if(!getChks().some(x=> x.checked)) allChk.checked = true; // tidak ada yang dicentang -> balik ke "Semua Status"
+      updateStatusBidangTriggerLabel();
+      renderRekapBidang();
+    });
+  });
+  document.getElementById('msStatusBidangCutiBtn').addEventListener('click', (e)=>{
+    e.stopPropagation();
+    const panel = document.getElementById('msStatusBidangCutiPanel');
+    panel.style.display = (panel.style.display === 'none') ? 'block' : 'none';
+  });
+  document.addEventListener('click', (e)=>{
+    const wrap = document.getElementById('msStatusBidangCuti');
+    const panel = document.getElementById('msStatusBidangCutiPanel');
+    if(wrap && panel && !wrap.contains(e.target)) panel.style.display = 'none';
+  });
+}
+
+/** Pasang perilaku Filter Periode (Rentang Tanggal / Bulan) di Rekap Bidang:
+ *  menampilkan/menyembunyikan input yang relevan dan memicu render ulang. */
+function wirePeriodeBidangCuti(){
+  const modeSel = document.getElementById('filterPeriodeModeBidangCuti');
+  const fieldAwal = document.getElementById('fieldRangeAwalBidangCuti');
+  const fieldAkhir = document.getElementById('fieldRangeAkhirBidangCuti');
+  const fieldBulan = document.getElementById('fieldBulanBidangCuti');
+
+  modeSel.addEventListener('change', ()=>{
+    const v = modeSel.value;
+    fieldAwal.style.display = (v === 'range') ? '' : 'none';
+    fieldAkhir.style.display = (v === 'range') ? '' : 'none';
+    fieldBulan.style.display = (v === 'bulan') ? '' : 'none';
+    renderRekapBidang();
+  });
+  document.getElementById('filterTglAwalBidangCuti').addEventListener('change', renderRekapBidang);
+  document.getElementById('filterTglAkhirBidangCuti').addEventListener('change', renderRekapBidang);
+
+  const chkSemuaBulan = document.getElementById('filterBulanSemuaBidangCuti');
+  const inpBulan = document.getElementById('filterBulanBidangCuti');
+  chkSemuaBulan.addEventListener('change', ()=>{
+    inpBulan.disabled = chkSemuaBulan.checked;
+    renderRekapBidang();
+  });
+  inpBulan.addEventListener('change', renderRekapBidang);
+}
+
 /* ---------- Perakitan Modul Cuti ---------- */
 function wireCutiPanel(){
   wireSimpleSubtabs('cutiMainTabs', {
@@ -2577,7 +2740,8 @@ function wireCutiPanel(){
   });
   document.getElementById('filterStatusCuti').addEventListener('change', renderRekapStatus);
   document.getElementById('filterBidangCuti').addEventListener('change', renderRekapBidang);
-  document.getElementById('filterStatusBidangCuti').addEventListener('change', renderRekapBidang);
+  wireStatusBidangMultiselect();
+  wirePeriodeBidangCuti();
 
   document.getElementById('btnExportStatusExcel').addEventListener('click', exportRekapStatusExcel);
   document.getElementById('btnExportStatusPDF').addEventListener('click', exportRekapStatusPDF);
