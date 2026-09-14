@@ -1496,6 +1496,12 @@ function categoryFormBodyHTML(cat){
 
       <hr style="border:none;border-top:1px solid var(--line);margin:18px 0;">
 
+      ${cat.key==='pelantikan' ? `<p class="hint" style="background:#fff8e1;border:1px solid #f0d97a;border-radius:8px;padding:10px 12px;">
+        <strong>Penting:</strong> laporan Pelantikan dihitung per <em>kegiatan</em>, bukan per orang. Jika dalam satu
+        kegiatan pelantikan ada beberapa pegawai yang dilantik, input satu per satu seperti biasa, tetapi pastikan
+        <strong>Nomor SK yang diisi sama persis</strong> untuk semua pegawai pada kegiatan tersebut — sistem akan
+        menghitungnya sebagai 1 kali pelantikan.</p>` : ''}
+
       <div class="field-grid">
         ${cat.fields.map(f=> fieldHTML(cat.key, f)).join('')}
         <div class="field full"><label>Catatan Tambahan</label><textarea id="catatan_${cat.key}"></textarea></div>
@@ -3332,12 +3338,26 @@ function renderCategoryReport(key,rebuild=false){
   const meta=document.getElementById(`reportMeta_${key}`);
   meta.textContent=periodRangeText(type,year,period,acc)+` • ${list.length} data`;
   const sum=document.getElementById(`reportSummary_${key}`);
+  const groupField=EVENT_GROUP_FIELD[key];
   const statuses=cat.fields.filter(f=>f.type==='select').slice(0,3);
-  sum.innerHTML=`<div class="summary-card"><div class="num">${list.length}</div><div class="lbl">Total ${cat.label}</div></div>`+
+  const totalCard = groupField
+    ? `<div class="summary-card"><div class="num">${distinctCount(list,groupField)}</div><div class="lbl">Total ${cat.label} (Kegiatan)</div></div>`+
+      `<div class="summary-card"><div class="num">${list.length}</div><div class="lbl">Jumlah Pegawai Dilantik</div></div>`
+    : `<div class="summary-card"><div class="num">${list.length}</div><div class="lbl">Total ${cat.label}</div></div>`;
+  sum.innerHTML=totalCard+
     statuses.map(f=>{
-      const counts={};
-      list.forEach(r=>{const v=r.detail?.[f.id]||'Tidak diisi'; counts[v]=(counts[v]||0)+1;});
-      return Object.entries(counts).slice(0,4).map(([v,n])=>`<div class="summary-card"><div class="num">${n}</div><div class="lbl">${f.label}: ${v}</div></div>`).join('');
+      const buckets={};
+      list.forEach(r=>{
+        const v=r.detail?.[f.id]||'Tidak diisi';
+        if(groupField){
+          const gv=String(r.detail?.[groupField]||'').trim() || `__row_${r.id}`;
+          (buckets[v] || (buckets[v]=new Set())).add(gv);
+        } else {
+          buckets[v]=(buckets[v]||0)+1;
+        }
+      });
+      const entries=Object.entries(buckets).map(([v,val])=>[v, groupField ? val.size : val]);
+      return entries.slice(0,4).map(([v,n])=>`<div class="summary-card"><div class="num">${n}</div><div class="lbl">${f.label}: ${v}</div></div>`).join('');
     }).join('');
   const table=document.getElementById(`reportTable_${key}`);
   if(!list.length){ table.innerHTML='<tr><td class="empty-state">Tidak ada data pada periode ini.</td></tr>'; return; }
@@ -3686,16 +3706,31 @@ function renderDashboard(){
    LAPORAN KINERJA (Ringkasan Kategori) — mengikuti format
    "Laporan Kinerja Asisten Pembinaan" yang dipakai kantor.
    ========================================================= */
+// Kategori yang dilaporkan PER KEGIATAN (bukan per orang) — beberapa baris/orang
+// dengan nilai field ini yang sama dianggap 1 kegiatan/kali. Baris yang field-nya
+// kosong tetap dihitung sebagai kegiatan tersendiri (tidak digabung/hilang).
+const EVENT_GROUP_FIELD = { pelantikan: 'nomorSk' };
+function distinctCount(list, groupField){
+  if(!groupField) return list.length;
+  const seen = new Set();
+  list.forEach(r=>{
+    const v = String(r.detail?.[groupField]||'').trim();
+    seen.add(v || `__row_${r.id}`);
+  });
+  return seen.size;
+}
 function countCat(key,type,year,period,acc){
   const cat = CATEGORIES.find(c=>c.key===key);
   if(!cat) return 0;
-  return filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc).length;
+  const list = filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc);
+  return distinctCount(list, EVENT_GROUP_FIELD[key]);
 }
 function countCatWhere(key,type,year,period,acc,fieldId,value){
   const cat = CATEGORIES.find(c=>c.key===key);
   if(!cat) return 0;
-  return filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc)
-    .filter(r=> r.detail?.[fieldId] === value).length;
+  const list = filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key), cat, type, year, period, acc)
+    .filter(r=> r.detail?.[fieldId] === value);
+  return distinctCount(list, EVENT_GROUP_FIELD[key]);
 }
 function catRecordsForPeriod(key,type,year,period,acc){
   const cat = CATEGORIES.find(c=>c.key===key);
