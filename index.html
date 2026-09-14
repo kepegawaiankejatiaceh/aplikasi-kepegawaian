@@ -242,6 +242,7 @@
     transition:border-color 0.15s ease, box-shadow 0.15s ease;
   }
   textarea{resize:vertical;min-height:60px;}
+  input[readonly]{ background:var(--bg-soft,#f4f4f6); color:var(--ink-soft); cursor:not-allowed; }
   input:focus, select:focus, textarea:focus{
     outline:none;
     border-color:var(--accent);
@@ -642,6 +643,9 @@ const CATEGORIES = [
     { id:'nomorSk', label:'Nomor SK', type:'text' },
     { id:'tglSk', label:'Tanggal SK', type:'date' },
     { id:'pejabatPenetap', label:'Pejabat Penetap', type:'text', suggest:true },
+    { id:'tglBerlaku', label:'Tanggal Berlaku', type:'date' },
+    { id:'masaTenggang', label:'Masa Tenggang (Tahun)', type:'number', min:0 },
+    { id:'tglBerakhir', label:'Tanggal Berakhir', type:'date', readonly:true, computeFrom:{ date:'tglBerlaku', years:'masaTenggang' } },
   ]},
   { key:'usulpangkat', label:'Usul Pangkat', sheet:'Usul Pangkat', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -656,7 +660,12 @@ const CATEGORIES = [
   { key:'pencantumangelar', label:'Pencantuman Gelar', sheet:'Pencantuman Gelar', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
     { id:'periode', label:'Periode (Bulan)', type:'month' },
-    { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
+    { id:'nomorPengantar', label:'Nomor Pengantar', type:'text' },
+    { id:'kekuranganBerkas', label:'Kekurangan Berkas', type:'text' },
+    { id:'printPengantar', label:'Print Pengantar', type:'text' },
+    { id:'ck', label:'CK', type:'text' },
+    { id:'statusUsul', label:'Status', type:'select', options:['Di Kirim','Di Tolak'] },
+    { id:'catatanPenolakan', label:'Catatan Penolakan', type:'text' },
   ]},
   { key:'kgb', label:'Kenaikan Gaji Berkala', sheet:'Kenaikan Gaji Berkala', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -745,7 +754,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwB7rgPE79XYzF5TGXq4JLQI9U-trVUMA7Cui64xjaDJi8pds7Y1UoMvvJ7b4dBSm1f0g/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyyQXQiN4qlFKj8-QJzoYIeFyitRh9aaN1gleBIjdKaICRLJQfcc0kSaZkmmnKUZcVlSA/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -799,8 +808,8 @@ let state = {
   bidangList: [],      // {nip, nama, bidang} - default bidang per pegawai (modul Cuti)
   sisaCutiList: [],    // {nip, nama, berjalan, tahunLalu, duaTahunLalu} - saldo sisa cuti (modul Cuti)
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
-  usulPangkatSelected: null, // pegawai terpilih pada form Input Pegawai (Usul Pangkat)
-  usulPangkatBerkasRows: [''], // baris dropdown Kekurangan Berkas yang sedang diisi
+  usulModuleSelected: {}, // pegawai terpilih per modul { usulpangkat, pencantumangelar }
+  usulModuleBerkasRows: {}, // baris dropdown Kekurangan Berkas per modul { usulpangkat:[''], pencantumangelar:[''] }
   rekapPegawaiList: [], // rekap 9 kolom per bulan: {bulan, satker, laki, perempuan, jaksaLk, jaksaPr, tuLk, tuPr, total}
 };
 
@@ -1272,10 +1281,11 @@ function rerenderVisibleData(){
     if(key === 'rekap') renderRekapCutiAll();
     if(key === 'pengaturan'){ renderBidangTable(); renderSisaCutiTable(); }
   }
-  if(tab === 'cat:usulpangkat'){
-    const activeSub = document.querySelector('#usulPangkatMainTabs button.active');
+  const usulModuleKey = tab.startsWith('cat:') ? tab.slice(4) : null;
+  if(usulModuleKey && USUL_MODULE_KEYS.includes(usulModuleKey)){
+    const activeSub = document.querySelector(`#usulModuleMainTabs_${usulModuleKey} button.active`);
     const key = activeSub ? activeSub.dataset.key : 'input';
-    if(key === 'rekap') renderRekapUsul(false);
+    if(key === 'rekap') renderRekapUsulModule(usulModuleKey, false);
   }
   const simpleKey = tab.startsWith('cat:') ? tab.slice(4) : null;
   if(simpleKey && MONTHLY_RECAP_KEYS.includes(simpleKey)){
@@ -1385,7 +1395,10 @@ function fieldHTML(catKey, f){
       <input type="text" id="${id}" list="dl_${f.id}" autocomplete="off">
       <datalist id="dl_${f.id}"></datalist></div>`;
   }
-  return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"></div>`;
+  if(f.readonly){
+    return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}" readonly tabindex="-1"></div>`;
+  }
+  return `<div class="field"><label for="${id}">${f.label}</label><input type="${f.type}" id="${id}"${f.min!=null?` min="${f.min}"`:''}></div>`;
 }
 
 const SUGGESTION_FIELD_IDS = ['asalInstansi','namaDiklat','penyelenggara','tempat','unitPenempatan','pejabatPenetap','pejabat','alasan','pembimbing','jenisHukuman','pelanggaran','institusi','sumberBeasiswa'];
@@ -1608,6 +1621,23 @@ function wireCategoryPanel(cat){
 
   document.querySelector(`[data-save="${cat.key}"]`).addEventListener('click', ()=> saveRecord(cat));
   document.querySelector(`[data-reset="${cat.key}"]`).addEventListener('click', ()=> resetCategoryForm(cat));
+
+  wireComputedFields(cat);
+}
+
+/** Field yang punya computeFrom (mis. Tanggal Berakhir = Tanggal Berlaku + Masa
+ *  Tenggang tahun) dihitung ulang otomatis setiap field sumbernya berubah. */
+function wireComputedFields(cat){
+  cat.fields.forEach(f=>{
+    if(!f.computeFrom) return;
+    const dateEl = document.getElementById(`f_${cat.key}_${f.computeFrom.date}`);
+    const yearsEl = document.getElementById(`f_${cat.key}_${f.computeFrom.years}`);
+    const targetEl = document.getElementById(`f_${cat.key}_${f.id}`);
+    if(!dateEl || !yearsEl || !targetEl) return;
+    const recompute = ()=>{ targetEl.value = addYearsToDateStr(dateEl.value, yearsEl.value); };
+    dateEl.addEventListener('change', recompute);
+    yearsEl.addEventListener('input', recompute);
+  });
 }
 
 function resetCategoryForm(cat){
@@ -2088,6 +2118,20 @@ function formatTanggalID(value){
     return `${parts[2]}-${parts[1]}-${parts[0]}`;
   }
   return s;
+}
+
+/** Menghitung tanggal + N tahun (mis. tanggal berlaku 2026-02-01 + masa tenggang
+ *  2 tahun = 2028-02-01), dikembalikan dalam format YYYY-MM-DD untuk mengisi
+ *  input type="date". Mengembalikan string kosong jika input tidak lengkap/valid. */
+function addYearsToDateStr(dateStr, yearsStr){
+  if(!dateStr || yearsStr === '' || yearsStr == null) return '';
+  const years = Number(yearsStr);
+  if(isNaN(years)) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  const result = new Date(d.getFullYear() + Math.trunc(years), d.getMonth(), d.getDate());
+  const pad = n=> String(n).padStart(2,'0');
+  return `${result.getFullYear()}-${pad(result.getMonth()+1)}-${pad(result.getDate())}`;
 }
 
 /* ---------- Sub-tab switching (generik) ---------- */
@@ -2749,115 +2793,142 @@ function wireCutiPanel(){
 }
 
 /* =========================================================
-   MODUL: USUL PANGKAT (Input Pegawai, Rekap Usul)
+   MODUL: USUL PANGKAT & PENCANTUMAN GELAR
+   (Input Pegawai, Rekap Usul) — kedua kategori memakai struktur
+   panel yang sama; yang membedakan hanya label dan daftar pilihan
+   Kekurangan Berkas.
    ========================================================= */
-const KEKURANGAN_BERKAS_OPTIONS = ['Akreditasi','Ijazah','Transkip','Sertifikat Lulus','Ijin Belajar','Uraian Tugas','Karpeg','PAK','CPNS','Jabatan','Mutasi','Pangkat Gol','PNS','SKP 2022','SKP 2023','SKP 2024','SKP 2025','Menduduki Jabatan','SK Fungsional','Pelantikan','SPMT','CK'];
+const KEKURANGAN_BERKAS_OPTIONS = ['Akreditasi','Ijazah','Transkip','Sertifikat Lulus','Ijin Belajar','Uraian Tugas','Karpeg','PAK','CPNS','Jabatan','Mutasi','Pangkat Gol','PNS','SKP 2022','SKP 2023','SKP 2024','SKP 2025','Menduduki Jabatan','SK Fungsional','Pelantikan','SPMT','CK','Foto Profil Tidak Sesuai','Dashboard Pegawai Masih Kurang'];
 
-function panelUsulPangkatHTML(){
+// Daftar Kekurangan Berkas khusus untuk modul Pencantuman Gelar
+const KEKURANGAN_BERKAS_OPTIONS_GELAR = ['Ijazah','Transkrip','Ijin Belajar','Akreditasi Program Studi','SK Pangkat Terakhir','SK CPNS','SK PNS','SKP 2 Tahun Terakhir','SK Jabatan','Izin Dikti (Untuk Kelas Jarak Jauh)'];
+
+// Konfigurasi tiap modul "gaya Usul Pangkat" (Input Pegawai + Rekap Usul)
+const USUL_MODULES = {
+  usulpangkat: {
+    label: 'Usul Pangkat',
+    berkasOptions: KEKURANGAN_BERKAS_OPTIONS,
+    rekapHint: 'Daftar pegawai yang sedang diusulkan Kenaikan Pangkatnya, dikelompokkan per periode.',
+    emptyText: 'Tidak ada usul pangkat pada periode ini.',
+  },
+  pencantumangelar: {
+    label: 'Pencantuman Gelar',
+    berkasOptions: KEKURANGAN_BERKAS_OPTIONS_GELAR,
+    rekapHint: 'Daftar pegawai yang sedang diusulkan Pencantuman Gelarnya, dikelompokkan per periode.',
+    emptyText: 'Tidak ada usul pencantuman gelar pada periode ini.',
+  },
+};
+const USUL_MODULE_KEYS = Object.keys(USUL_MODULES);
+
+function panelUsulModuleHTML(catKey){
+  const cfg = USUL_MODULES[catKey];
+  const cat = CATEGORIES.find(c=>c.key===catKey);
   return `
-  <section class="panel" id="panel-cat-usulpangkat">
+  <section class="panel" id="panel-cat-${catKey}">
     <div class="card">
-      <h2>Usul Pangkat</h2>
-      <div class="subtabs" id="usulPangkatMainTabs">
+      <h2>${cfg.label}</h2>
+      <div class="subtabs" id="usulModuleMainTabs_${catKey}">
         <button data-key="input" class="active">Input Pegawai</button>
         <button data-key="rekap">Rekap Usul</button>
       </div>
 
       <!-- ===== INPUT PEGAWAI ===== -->
-      <div id="usulPangkatSub-input">
+      <div id="usulModuleSub-input_${catKey}">
         <p class="hint">Pilih pegawai dari data yang telah dimuat, atau isi manual untuk pegawai lama / peserta magang / pihak non-pegawai.</p>
         <div class="toggle-row">
-          <input type="checkbox" id="manual_usulpangkat">
-          <label for="manual_usulpangkat">Input manual (pegawai lama, peserta magang, atau non-pegawai)</label>
+          <input type="checkbox" id="manual_${catKey}">
+          <label for="manual_${catKey}">Input manual (pegawai lama, peserta magang, atau non-pegawai)</label>
         </div>
-        <div id="pegawaiPicker_usulpangkat">
+        <div id="pegawaiPicker_${catKey}">
           <div class="field-grid">
             <div class="field full employee-search">
               <label>Cari Pegawai (nama / NIP)</label>
               <div class="employee-search-row">
-                <input type="text" id="search_usulpangkat" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
-                <button type="button" class="btn-add-employee" id="btnAddEmployee_usulpangkat" title="Tambahkan pegawai">+</button>
+                <input type="text" id="search_${catKey}" autocomplete="off" placeholder="Ketik minimal 2 huruf...">
+                <button type="button" class="btn-add-employee" id="btnAddEmployee_${catKey}" title="Tambahkan pegawai">+</button>
               </div>
-              <div class="employee-results" id="results_usulpangkat" style="display:none;"></div>
-              <div class="selected-employee" id="selected_usulpangkat"></div>
-              <div class="bulk-employee-list" id="bulkEmployeeList_usulpangkat"></div>
+              <div class="employee-results" id="results_${catKey}" style="display:none;"></div>
+              <div class="selected-employee" id="selected_${catKey}"></div>
+              <div class="bulk-employee-list" id="bulkEmployeeList_${catKey}"></div>
             </div>
           </div>
         </div>
-        <div id="manualFields_usulpangkat" style="display:none;">
-          <div class="field-grid">${manualFieldsHTML('usulpangkat')}</div>
+        <div id="manualFields_${catKey}" style="display:none;">
+          <div class="field-grid">${manualFieldsHTML(catKey)}</div>
         </div>
 
         <hr style="border:none;border-top:1px solid var(--line);margin:18px 0;">
 
         <div class="field-grid">
-          ${fieldHTML('usulpangkat', CATEGORIES.find(c=>c.key==='usulpangkat').fields.find(f=>f.id==='tglInput'))}
-          ${fieldHTML('usulpangkat', CATEGORIES.find(c=>c.key==='usulpangkat').fields.find(f=>f.id==='periode'))}
-          ${fieldHTML('usulpangkat', CATEGORIES.find(c=>c.key==='usulpangkat').fields.find(f=>f.id==='nomorPengantar'))}
+          ${fieldHTML(catKey, cat.fields.find(f=>f.id==='tglInput'))}
+          ${fieldHTML(catKey, cat.fields.find(f=>f.id==='periode'))}
+          ${fieldHTML(catKey, cat.fields.find(f=>f.id==='nomorPengantar'))}
           <div class="field full">
             <label>Kekurangan Berkas</label>
-            <div id="kekuranganBerkasRows_usulpangkat"></div>
-            <button type="button" class="btn secondary" id="btnAddKekuranganBerkas" style="margin-top:8px;">+ Tambah Kekurangan Berkas</button>
+            <div id="kekuranganBerkasRows_${catKey}"></div>
+            <button type="button" class="btn secondary" data-add-berkas="${catKey}" style="margin-top:8px;">+ Tambah Kekurangan Berkas</button>
           </div>
-          <div class="field full"><label>Catatan Tambahan</label><textarea id="catatan_usulpangkat"></textarea></div>
+          <div class="field full"><label>Catatan Tambahan</label><textarea id="catatan_${catKey}"></textarea></div>
         </div>
 
         <div class="btn-row">
-          <button class="btn accent" id="btnSaveUsulPangkat">Simpan Data</button>
-          <button class="btn secondary" id="btnResetUsulPangkat">Bersihkan Form</button>
+          <button class="btn accent" data-save-usul="${catKey}">Simpan Data</button>
+          <button class="btn secondary" data-reset-usul="${catKey}">Bersihkan Form</button>
         </div>
-        <div id="formBanner_usulpangkat"></div>
+        <div id="formBanner_${catKey}"></div>
       </div>
 
       <!-- ===== REKAP USUL ===== -->
-      <div id="usulPangkatSub-rekap" style="display:none;">
-        <p class="hint">Daftar pegawai yang sedang diusulkan Kenaikan Pangkatnya, dikelompokkan per periode.</p>
+      <div id="usulModuleSub-rekap_${catKey}" style="display:none;">
+        <p class="hint">${cfg.rekapHint}</p>
         <div class="filters-row">
           <div class="field">
             <label>Periode</label>
-            <select id="filterPeriodeUsulPangkat"><option value="">Semua Periode</option></select>
+            <select id="filterPeriodeUsul_${catKey}"><option value="">Semua Periode</option></select>
           </div>
         </div>
-        <div id="usulPangkatCards"></div>
+        <div id="usulCards_${catKey}"></div>
       </div>
     </div>
   </section>`;
 }
 
-function renderKekuranganBerkasRows(){
-  const container = document.getElementById('kekuranganBerkasRows_usulpangkat');
+function renderKekuranganBerkasRows(catKey){
+  const container = document.getElementById(`kekuranganBerkasRows_${catKey}`);
   if(!container) return;
-  container.innerHTML = state.usulPangkatBerkasRows.map((val,i)=>`
+  const options = USUL_MODULES[catKey].berkasOptions;
+  const rows = state.usulModuleBerkasRows[catKey];
+  container.innerHTML = rows.map((val,i)=>`
     <div class="field-grid" style="grid-template-columns:1fr auto;align-items:end;margin-bottom:8px;">
       <div class="field">
         <select data-berkas-idx="${i}">
           <option value="">— pilih dokumen —</option>
-          ${KEKURANGAN_BERKAS_OPTIONS.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}
+          ${options.map(o=>`<option value="${o}" ${o===val?'selected':''}>${o}</option>`).join('')}
         </select>
       </div>
-      ${state.usulPangkatBerkasRows.length>1 ? `<button type="button" class="btn danger" data-remove-berkas-idx="${i}" style="padding:8px 12px;">&times;</button>` : '<div></div>'}
+      ${rows.length>1 ? `<button type="button" class="btn danger" data-remove-berkas-idx="${i}" style="padding:8px 12px;">&times;</button>` : '<div></div>'}
     </div>`).join('');
   container.querySelectorAll('[data-berkas-idx]').forEach(sel=>{
-    sel.addEventListener('change', ()=>{ state.usulPangkatBerkasRows[parseInt(sel.dataset.berkasIdx,10)] = sel.value; });
+    sel.addEventListener('change', ()=>{ state.usulModuleBerkasRows[catKey][parseInt(sel.dataset.berkasIdx,10)] = sel.value; });
   });
   container.querySelectorAll('[data-remove-berkas-idx]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
-      state.usulPangkatBerkasRows.splice(parseInt(btn.dataset.removeBerkasIdx,10),1);
-      renderKekuranganBerkasRows();
+      state.usulModuleBerkasRows[catKey].splice(parseInt(btn.dataset.removeBerkasIdx,10),1);
+      renderKekuranganBerkasRows(catKey);
     });
   });
 }
 
-function wireUsulPangkatInput(){
-  const manualCheckbox = document.getElementById('manual_usulpangkat');
+function wireUsulModuleInput(catKey){
+  const manualCheckbox = document.getElementById(`manual_${catKey}`);
   manualCheckbox.addEventListener('change', ()=>{
-    document.getElementById('pegawaiPicker_usulpangkat').style.display = manualCheckbox.checked ? 'none' : 'block';
-    document.getElementById('manualFields_usulpangkat').style.display = manualCheckbox.checked ? 'block' : 'none';
-    state.usulPangkatSelected = null;
+    document.getElementById(`pegawaiPicker_${catKey}`).style.display = manualCheckbox.checked ? 'none' : 'block';
+    document.getElementById(`manualFields_${catKey}`).style.display = manualCheckbox.checked ? 'block' : 'none';
+    state.usulModuleSelected[catKey] = null;
   });
 
-  const searchInput = document.getElementById('search_usulpangkat');
-  const resultsBox = document.getElementById('results_usulpangkat');
+  const searchInput = document.getElementById(`search_${catKey}`);
+  const resultsBox = document.getElementById(`results_${catKey}`);
   searchInput.addEventListener('input', ()=>{
     const q = searchInput.value.trim().toLowerCase();
     if(q.length < 2){ resultsBox.style.display='none'; return; }
@@ -2870,68 +2941,70 @@ function wireUsulPangkatInput(){
     resultsBox.querySelectorAll('div[data-idx]').forEach(div=>{
       div.addEventListener('click', ()=>{
         const emp = matches[parseInt(div.dataset.idx,10)];
-        state.usulPangkatSelected = emp;
-        document.getElementById('selected_usulpangkat').textContent = `Terpilih: ${emp.nama} (${emp.nip||'-'})`;
+        state.usulModuleSelected[catKey] = emp;
+        document.getElementById(`selected_${catKey}`).textContent = `Terpilih: ${emp.nama} (${emp.nip||'-'})`;
         searchInput.value = emp.nama;
         resultsBox.style.display = 'none';
       });
     });
   });
   document.addEventListener('click', (e)=>{
-    if(!e.target.closest('#pegawaiPicker_usulpangkat')) resultsBox.style.display='none';
+    if(!e.target.closest(`#pegawaiPicker_${catKey}`)) resultsBox.style.display='none';
   });
 
-  document.getElementById('btnAddKekuranganBerkas').addEventListener('click', ()=>{
-    state.usulPangkatBerkasRows.push('');
-    renderKekuranganBerkasRows();
+  document.querySelector(`[data-add-berkas="${catKey}"]`).addEventListener('click', ()=>{
+    state.usulModuleBerkasRows[catKey].push('');
+    renderKekuranganBerkasRows(catKey);
   });
-  renderKekuranganBerkasRows();
+  renderKekuranganBerkasRows(catKey);
 
-  document.getElementById('btnSaveUsulPangkat').addEventListener('click', saveUsulPangkatRecord);
-  document.getElementById('btnResetUsulPangkat').addEventListener('click', resetUsulPangkatForm);
+  document.querySelector(`[data-save-usul="${catKey}"]`).addEventListener('click', ()=> saveUsulModuleRecord(catKey));
+  document.querySelector(`[data-reset-usul="${catKey}"]`).addEventListener('click', ()=> resetUsulModuleForm(catKey));
 }
 
-function resetUsulPangkatForm(){
-  document.getElementById('manual_usulpangkat').checked = false;
-  document.getElementById('pegawaiPicker_usulpangkat').style.display = 'block';
-  document.getElementById('manualFields_usulpangkat').style.display = 'none';
-  document.getElementById('search_usulpangkat').value = '';
-  document.getElementById('selected_usulpangkat').textContent = '';
-  ['manualNama','manualNip','manualJabatan','manualUnit'].forEach(p=> document.getElementById(`${p}_usulpangkat`).value='');
-  document.getElementById(`f_usulpangkat_tglInput`).value = '';
-  document.getElementById(`f_usulpangkat_periode`).value = '';
-  document.getElementById(`f_usulpangkat_nomorPengantar`).value = '';
-  document.getElementById('catatan_usulpangkat').value = '';
-  state.usulPangkatSelected = null;
-  state.usulPangkatBerkasRows = [''];
-  renderKekuranganBerkasRows();
-  document.getElementById('formBanner_usulpangkat').innerHTML = '';
+function resetUsulModuleForm(catKey){
+  document.getElementById(`manual_${catKey}`).checked = false;
+  document.getElementById(`pegawaiPicker_${catKey}`).style.display = 'block';
+  document.getElementById(`manualFields_${catKey}`).style.display = 'none';
+  document.getElementById(`search_${catKey}`).value = '';
+  document.getElementById(`selected_${catKey}`).textContent = '';
+  ['manualNama','manualNip','manualJabatan','manualUnit'].forEach(p=> document.getElementById(`${p}_${catKey}`).value='');
+  document.getElementById(`f_${catKey}_tglInput`).value = '';
+  document.getElementById(`f_${catKey}_periode`).value = '';
+  document.getElementById(`f_${catKey}_nomorPengantar`).value = '';
+  document.getElementById(`catatan_${catKey}`).value = '';
+  state.usulModuleSelected[catKey] = null;
+  state.usulModuleBerkasRows[catKey] = [''];
+  renderKekuranganBerkasRows(catKey);
+  document.getElementById(`formBanner_${catKey}`).innerHTML = '';
 }
 
-async function saveUsulPangkatRecord(){
-  const isManual = document.getElementById('manual_usulpangkat').checked;
+async function saveUsulModuleRecord(catKey){
+  const cfg = USUL_MODULES[catKey];
+  const cat = CATEGORIES.find(c=>c.key===catKey);
+  const isManual = document.getElementById(`manual_${catKey}`).checked;
   let nama, nip, jabatan, unit, sumber;
   if(isManual){
-    nama = document.getElementById('manualNama_usulpangkat').value.trim();
-    nip = document.getElementById('manualNip_usulpangkat').value.trim();
-    jabatan = document.getElementById('manualJabatan_usulpangkat').value.trim();
-    unit = document.getElementById('manualUnit_usulpangkat').value.trim();
+    nama = document.getElementById(`manualNama_${catKey}`).value.trim();
+    nip = document.getElementById(`manualNip_${catKey}`).value.trim();
+    jabatan = document.getElementById(`manualJabatan_${catKey}`).value.trim();
+    unit = document.getElementById(`manualUnit_${catKey}`).value.trim();
     sumber = 'Manual';
   } else {
-    const emp = state.usulPangkatSelected;
-    if(!emp){ showBanner('formBanner_usulpangkat','warn','Pilih pegawai terlebih dahulu, atau centang input manual.'); return; }
+    const emp = state.usulModuleSelected[catKey];
+    if(!emp){ showBanner(`formBanner_${catKey}`,'warn','Pilih pegawai terlebih dahulu, atau centang input manual.'); return; }
     nama = emp.nama; nip = emp.nip; jabatan = emp.jabatan; unit = emp.unit;
     sumber = 'Data Pegawai';
   }
-  if(!nama){ showBanner('formBanner_usulpangkat','warn','Nama wajib diisi.'); return; }
-  if(!state.settings.webAppUrl){ showBanner('formBanner_usulpangkat','warn','URL Web App belum diatur — buka menu Pengaturan terlebih dahulu.'); return; }
+  if(!nama){ showBanner(`formBanner_${catKey}`,'warn','Nama wajib diisi.'); return; }
+  if(!state.settings.webAppUrl){ showBanner(`formBanner_${catKey}`,'warn','URL Web App belum diatur — buka menu Pengaturan terlebih dahulu.'); return; }
 
-  const kekuranganBerkas = state.usulPangkatBerkasRows.filter(Boolean).join(', ');
+  const kekuranganBerkas = state.usulModuleBerkasRows[catKey].filter(Boolean).join(', ');
 
   const detail = {
-    tglInput: document.getElementById('f_usulpangkat_tglInput').value,
-    periode: document.getElementById('f_usulpangkat_periode').value,
-    nomorPengantar: document.getElementById('f_usulpangkat_nomorPengantar').value,
+    tglInput: document.getElementById(`f_${catKey}_tglInput`).value,
+    periode: document.getElementById(`f_${catKey}_periode`).value,
+    nomorPengantar: document.getElementById(`f_${catKey}_nomorPengantar`).value,
     kekuranganBerkas,
     printPengantar: 'Tidak',
     ck: 'Tidak',
@@ -2940,34 +3013,35 @@ async function saveUsulPangkatRecord(){
   };
 
   const record = {
-    id: genId(), kategoriKey:'usulpangkat', kategoriLabel:'Usul Pangkat', sheet:'Usul Pangkat',
+    id: genId(), kategoriKey:catKey, kategoriLabel:cat.label, sheet:cat.sheet,
     sumber, nama, nip, jabatan, unit, detail,
-    catatan: document.getElementById('catatan_usulpangkat').value.trim(),
+    catatan: document.getElementById(`catatan_${catKey}`).value.trim(),
     tanggalInput: new Date().toISOString(),
   };
 
-  const btn = document.getElementById('btnSaveUsulPangkat');
+  const btn = document.querySelector(`[data-save-usul="${catKey}"]`);
   btn.disabled = true;
-  showBanner('formBanner_usulpangkat','info','Menyimpan ke Google Sheets...');
+  showBanner(`formBanner_${catKey}`,'info','Menyimpan ke Google Sheets...');
   const ok = await pushRecordToSheets(record);
   btn.disabled = false;
   if(!ok){
-    showBanner('formBanner_usulpangkat','warn','Gagal menyimpan ke Google Sheets. Periksa koneksi internet Anda, lalu coba lagi. Data belum tersimpan.');
+    showBanner(`formBanner_${catKey}`,'warn','Gagal menyimpan ke Google Sheets. Periksa koneksi internet Anda, lalu coba lagi. Data belum tersimpan.');
     return;
   }
   await fetchAllRecordsFromSheets();
-  showBanner('formBanner_usulpangkat','ok', `Usul Pangkat untuk ${nama} berhasil disimpan.`);
-  resetUsulPangkatForm();
+  showBanner(`formBanner_${catKey}`,'ok', `${cfg.label} untuk ${nama} berhasil disimpan.`);
+  resetUsulModuleForm(catKey);
 }
 
-/* ---------- REKAP USUL ---------- */
-function allUsulPangkatRecords(){
-  return state.records.filter(r=> r.kategoriKey === 'usulpangkat');
+/* ---------- REKAP USUL (generik untuk semua USUL_MODULE_KEYS) ---------- */
+function allUsulModuleRecords(catKey){
+  return state.records.filter(r=> r.kategoriKey === catKey);
 }
 
-function renderRekapUsul(rebuildPeriode){
-  const select = document.getElementById('filterPeriodeUsulPangkat');
-  const all = allUsulPangkatRecords();
+function renderRekapUsulModule(catKey, rebuildPeriode){
+  const cfg = USUL_MODULES[catKey];
+  const select = document.getElementById(`filterPeriodeUsul_${catKey}`);
+  const all = allUsulModuleRecords(catKey);
   if(rebuildPeriode){
     const periods = Array.from(new Set(all.map(r=> r.detail.periode).filter(Boolean))).sort().reverse();
     const current = select.value;
@@ -2975,8 +3049,8 @@ function renderRekapUsul(rebuildPeriode){
   }
   const filterPeriode = select.value;
   const list = all.filter(r=> !filterPeriode || r.detail.periode === filterPeriode);
-  const container = document.getElementById('usulPangkatCards');
-  if(!list.length){ container.innerHTML = '<div class="empty-state">Tidak ada usul pangkat pada periode ini.</div>'; return; }
+  const container = document.getElementById(`usulCards_${catKey}`);
+  if(!list.length){ container.innerHTML = `<div class="empty-state">${cfg.emptyText}</div>`; return; }
 
   // status blank/Di Kirim di atas, Di Tolak di bawah (mengikuti aturan sort pada Laporan)
   const sorted = list.slice().sort((a,b)=>{
@@ -3026,10 +3100,10 @@ function renderRekapUsul(rebuildPeriode){
     </div>`;
   }).join('');
 
-  wireRekapUsulCardInteractions();
+  wireRekapUsulCardInteractions(catKey);
 }
 
-async function pushUsulPangkatFieldUpdate(recordId, mutateFn){
+async function pushUsulModuleFieldUpdate(catKey, recordId, mutateFn){
   const rec = state.records.find(r=> r.id === recordId);
   if(!rec) return;
   mutateFn(rec.detail);
@@ -3037,19 +3111,19 @@ async function pushUsulPangkatFieldUpdate(recordId, mutateFn){
   if(!ok){
     alert('Gagal menyimpan perubahan ke Google Sheets. Periksa koneksi internet Anda.');
     await fetchAllRecordsFromSheets(); // pulihkan tampilan sesuai data server
-    renderRekapUsul(false);
+    renderRekapUsulModule(catKey, false);
     return;
   }
   await fetchAllRecordsFromSheets();
-  renderRekapUsul(false);
+  renderRekapUsulModule(catKey, false);
 }
 
-function wireRekapUsulCardInteractions(){
-  const container = document.getElementById('usulPangkatCards');
+function wireRekapUsulCardInteractions(catKey){
+  const container = document.getElementById(`usulCards_${catKey}`);
   container.querySelectorAll('[data-remove-berkas]').forEach(btn=>{
     btn.addEventListener('click', ()=>{
       const idx = parseInt(btn.dataset.removeBerkas,10);
-      pushUsulPangkatFieldUpdate(btn.dataset.recordId, (detail)=>{
+      pushUsulModuleFieldUpdate(catKey, btn.dataset.recordId, (detail)=>{
         const arr = (detail.kekuranganBerkas||'').split(',').map(s=>s.trim()).filter(Boolean);
         arr.splice(idx,1);
         detail.kekuranganBerkas = arr.join(', ');
@@ -3059,14 +3133,14 @@ function wireRekapUsulCardInteractions(){
   container.querySelectorAll('[data-usul-check]').forEach(chk=>{
     chk.addEventListener('change', ()=>{
       const field = chk.dataset.usulCheck;
-      pushUsulPangkatFieldUpdate(chk.dataset.recordId, (detail)=>{ detail[field] = chk.checked ? 'Ya' : 'Tidak'; });
+      pushUsulModuleFieldUpdate(catKey, chk.dataset.recordId, (detail)=>{ detail[field] = chk.checked ? 'Ya' : 'Tidak'; });
     });
   });
   container.querySelectorAll('[data-usul-status]').forEach(sel=>{
     sel.addEventListener('change', ()=>{
       const wrap = document.querySelector(`[data-catatan-tolak-wrap="${sel.dataset.recordId}"]`);
       if(wrap) wrap.style.display = sel.value === 'Di Tolak' ? 'block' : 'none';
-      pushUsulPangkatFieldUpdate(sel.dataset.recordId, (detail)=>{
+      pushUsulModuleFieldUpdate(catKey, sel.dataset.recordId, (detail)=>{
         detail.statusUsul = sel.value;
         if(sel.value !== 'Di Tolak') detail.catatanPenolakan = '';
       });
@@ -3074,19 +3148,19 @@ function wireRekapUsulCardInteractions(){
   });
   container.querySelectorAll('[data-usul-catatan-tolak]').forEach(inp=>{
     inp.addEventListener('change', ()=>{
-      pushUsulPangkatFieldUpdate(inp.dataset.recordId, (detail)=>{ detail.catatanPenolakan = inp.value.trim(); });
+      pushUsulModuleFieldUpdate(catKey, inp.dataset.recordId, (detail)=>{ detail.catatanPenolakan = inp.value.trim(); });
     });
   });
 }
 
-function wireUsulPangkatPanel(){
-  wireSimpleSubtabs('usulPangkatMainTabs', {
-    input: 'usulPangkatSub-input', rekap: 'usulPangkatSub-rekap',
-  }, (key)=>{ if(key==='rekap') renderRekapUsul(true); });
+function wireUsulModulePanel(catKey){
+  wireSimpleSubtabs(`usulModuleMainTabs_${catKey}`, {
+    input: `usulModuleSub-input_${catKey}`, rekap: `usulModuleSub-rekap_${catKey}`,
+  }, (key)=>{ if(key==='rekap') renderRekapUsulModule(catKey, true); });
 
-  document.getElementById('filterPeriodeUsulPangkat').addEventListener('change', ()=> renderRekapUsul(false));
+  document.getElementById(`filterPeriodeUsul_${catKey}`).addEventListener('change', ()=> renderRekapUsulModule(catKey, false));
 
-  wireUsulPangkatInput();
+  wireUsulModuleInput(catKey);
 }
 
 /* =========================================================
@@ -3271,7 +3345,7 @@ function renderCategoryReport(key,rebuild=false){
   const headers=['Nama','NIP/Keterangan','Jabatan','Unit Kerja',...cat.fields.map(f=>f.label),'Catatan','Tanggal Input'];
   table.innerHTML='<tr>'+headers.map(h=>`<th>${h}</th>`).join('')+'</tr>'+
     list.slice().sort((a,b)=>{
-      if(key==='usulpangkat'){
+      if(USUL_MODULE_KEYS.includes(key)){
         const rank = v=> v==='Di Tolak' ? 1 : 0; // Di Kirim / belum diproses di atas, Di Tolak di bawah
         const d = rank(a.detail.statusUsul) - rank(b.detail.statusUsul);
         if(d !== 0) return d;
@@ -3980,10 +4054,10 @@ async function init(){
   buildNav();
   mainArea.innerHTML =
     panelDashboardHTML() +
-    CATEGORIES.filter(c=> c.key!=='cuti' && c.key!=='usulpangkat' && !MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryHTML).join('') +
+    CATEGORIES.filter(c=> c.key!=='cuti' && !USUL_MODULE_KEYS.includes(c.key) && !MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryHTML).join('') +
     CATEGORIES.filter(c=> MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryWithMonthlyRekapHTML).join('') +
     panelCutiHTML() +
-    panelUsulPangkatHTML() +
+    USUL_MODULE_KEYS.map(panelUsulModuleHTML).join('') +
     panelRekapPegawaiHTML() +
     CATEGORIES.map(reportPanelHTML).join('') +
     panelPengaturanHTML();
@@ -4022,13 +4096,17 @@ async function init(){
   });
   document.getElementById('btnSimpanKeLaporan').addEventListener('click', handleSimpanKeLaporan);
 
-  CATEGORIES.filter(c=>c.key!=='cuti' && c.key!=='usulpangkat').forEach(cat=>{
+  CATEGORIES.filter(c=>c.key!=='cuti' && !USUL_MODULE_KEYS.includes(c.key)).forEach(cat=>{
     state.selectedEmployee[cat.key] = null;
     wireCategoryPanel(cat);
     if(MONTHLY_RECAP_KEYS.includes(cat.key)) wireMonthlyRekap(cat);
   });
   wireCutiPanel();
-  wireUsulPangkatPanel();
+  USUL_MODULE_KEYS.forEach(key=>{
+    state.usulModuleSelected[key] = null;
+    state.usulModuleBerkasRows[key] = [''];
+    wireUsulModulePanel(key);
+  });
 
   wireDashboard();
   wireCategoryReports();
