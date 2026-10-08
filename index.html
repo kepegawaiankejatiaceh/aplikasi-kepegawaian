@@ -546,7 +546,7 @@ nav.tabs button.active .nav-icon {
     <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
+    <a class="sheet-link" id="sheetLink" href="https://subbagpegktaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
   <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">data mysimkari &#8599;</a>
     <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
   </div>
@@ -644,8 +644,8 @@ const CATEGORIES = [
     { id:'tglSk', label:'Tanggal SK', type:'date' },
     { id:'pejabatPenetap', label:'Pejabat Penetap', type:'text', suggest:true },
     { id:'tglBerlaku', label:'Tanggal Berlaku', type:'date' },
-    { id:'masaTenggang', label:'Masa Tenggang (Tahun)', type:'number', min:0 },
-    { id:'tglBerakhir', label:'Tanggal Berakhir', type:'date', readonly:true, computeFrom:{ date:'tglBerlaku', years:'masaTenggang' } },
+    { id:'masaTenggang', label:'Masa Tenggang (Bulan)', type:'number', min:0 },
+    { id:'tglBerakhir', label:'Tanggal Berakhir', type:'date', readonly:true, computeFrom:{ date:'tglBerlaku', months:'masaTenggang' } },
   ]},
   { key:'usulpangkat', label:'Usul Pangkat', sheet:'Usul Pangkat', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -964,6 +964,7 @@ function showTab(tab){
   if(tab === 'dashboard') renderDashboard();
   if(tab === 'report:pegawai') renderRekapPegawai(true);
   else if(tab.startsWith('report:')) renderCategoryReport(tab.slice(7), true);
+  if(tab === 'report:diklat') refreshDiklatSearch();
 }
 
 let STANDARD_FIELDS = [
@@ -1274,6 +1275,7 @@ function rerenderVisibleData(){
   if(tab === 'dashboard') renderDashboard();
   if(tab === 'report:pegawai') renderRekapPegawai(false);
   else if(tab.startsWith('report:')) renderCategoryReport(tab.slice(7), false);
+  if(tab === 'report:diklat') refreshDiklatSearch();
   if(tab === 'cat:cuti'){
     const activeSub = document.querySelector('#cutiMainTabs button.active');
     const key = activeSub ? activeSub.dataset.key : 'permohonan';
@@ -1637,12 +1639,15 @@ function wireComputedFields(cat){
   cat.fields.forEach(f=>{
     if(!f.computeFrom) return;
     const dateEl = document.getElementById(`f_${cat.key}_${f.computeFrom.date}`);
-    const yearsEl = document.getElementById(`f_${cat.key}_${f.computeFrom.years}`);
+    const amountId = f.computeFrom.months || f.computeFrom.years;
+    const amountEl = document.getElementById(`f_${cat.key}_${amountId}`);
     const targetEl = document.getElementById(`f_${cat.key}_${f.id}`);
-    if(!dateEl || !yearsEl || !targetEl) return;
-    const recompute = ()=>{ targetEl.value = addYearsToDateStr(dateEl.value, yearsEl.value); };
+    if(!dateEl || !amountEl || !targetEl) return;
+    const recompute = f.computeFrom.months
+      ? ()=>{ targetEl.value = addMonthsToDateStr(dateEl.value, amountEl.value); }
+      : ()=>{ targetEl.value = addYearsToDateStr(dateEl.value, amountEl.value); };
     dateEl.addEventListener('change', recompute);
-    yearsEl.addEventListener('input', recompute);
+    amountEl.addEventListener('input', recompute);
   });
 }
 
@@ -2136,6 +2141,27 @@ function addYearsToDateStr(dateStr, yearsStr){
   const d = new Date(dateStr + 'T00:00:00');
   if(isNaN(d.getTime())) return '';
   const result = new Date(d.getFullYear() + Math.trunc(years), d.getMonth(), d.getDate());
+  const pad = n=> String(n).padStart(2,'0');
+  return `${result.getFullYear()}-${pad(result.getMonth()+1)}-${pad(result.getDate())}`;
+}
+/** Menghitung tanggal + N bulan (mis. tanggal berlaku 2026-02-15 + masa tenggang
+ *  18 bulan = 2027-08-15), dikembalikan dalam format YYYY-MM-DD. Jika tanggal asal
+ *  jatuh di akhir bulan (mis. 31) dan bulan hasil lebih pendek, otomatis disesuaikan
+ *  ke tanggal terakhir bulan tersebut (perilaku standar JS Date). */
+function addMonthsToDateStr(dateStr, monthsStr){
+  if(!dateStr || monthsStr === '' || monthsStr == null) return '';
+  const months = Number(monthsStr);
+  if(isNaN(months)) return '';
+  const d = new Date(dateStr + 'T00:00:00');
+  if(isNaN(d.getTime())) return '';
+  const targetMonthIndex = d.getMonth() + Math.trunc(months);
+  const targetYear = d.getFullYear() + Math.floor(targetMonthIndex / 12);
+  const targetMonth = ((targetMonthIndex % 12) + 12) % 12;
+  // Hari terakhir bulan target (mis. 31 Jan + 1 bulan -> dibulatkan ke 28/29 Feb,
+  // bukan "meluber" ke bulan berikutnya).
+  const lastDayOfTargetMonth = new Date(targetYear, targetMonth + 1, 0).getDate();
+  const day = Math.min(d.getDate(), lastDayOfTargetMonth);
+  const result = new Date(targetYear, targetMonth, day);
   const pad = n=> String(n).padStart(2,'0');
   return `${result.getFullYear()}-${pad(result.getMonth()+1)}-${pad(result.getDate())}`;
 }
@@ -3226,16 +3252,19 @@ function safeDate(str){
   return isNaN(d.getTime()) ? null : d;
 }
 function periodInfo(type,year,period){
+  if(type==='all') return {label:'Semua Periode (Sepanjang Masa)', maxMonth:12};
   if(type==='monthly') return {label:`Bulan ${BULAN_NAMES[period-1]} ${year}`, maxMonth:period};
   if(type==='quarterly') return {label:`Triwulan ${period} Tahun ${year}`, maxMonth:period*3};
   return {label:`Semester ${period} Tahun ${year}`, maxMonth:period*6};
 }
 function getPeriodOptions(type){
+  if(type==='all') return '';
   if(type==='monthly') return BULAN_NAMES.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
   if(type==='quarterly') return [1,2,3,4].map(q=>`<option value="${q}">Triwulan ${q}</option>`).join('');
   return [1,2].map(s=>`<option value="${s}">Semester ${s}</option>`).join('');
 }
 function filterRecordsByPeriod(records,cat,type,year,period,accumulate){
+  if(type==='all') return records.slice();
   const maxMonth=periodInfo(type,year,period).maxMonth;
   return records.filter(r=>{
     const d=safeDate(reportDateValue(r,cat));
@@ -3252,7 +3281,7 @@ function reportYearOptions(){
   if(!years.size) years.add(new Date().getFullYear());
   return Array.from(years).sort((a,b)=>b-a);
 }
-function reportPanelHTML(cat){
+function reportPanelHTMLBase(cat){
   const years=reportYearOptions();
   const now=new Date();
   const defaultYear=now.getFullYear();
@@ -3272,12 +3301,30 @@ function reportPanelHTML(cat){
       <p class="hint">Rincian laporan mengikuti seluruh kolom yang tersedia pada form <strong>${cat.label}</strong>. Periode dihitung dari <strong>${(cat.fields.find(f=>f.id===reportDateField(cat))||{}).label||'Tanggal Input'}</strong>.</p>
       <div class="report-toolbar">
         ${basisSelectHTML}
+        ${cat.key==='disiplin' ? `
+        <div class="field">
+          <label>Status Masa Tenggang</label>
+          <select id="reportTenggang_${cat.key}">
+            <option value="semua">Semua</option>
+            <option value="berjalan">Sedang Menjalankan (Dalam Masa Tenggang)</option>
+            <option value="selesai">Selesai (Melewati Masa Tenggang)</option>
+          </select>
+        </div>` : ''}
+        ${cat.key==='pelantikan' ? `
+        <div class="field">
+          <label>Jenis Pelantikan</label>
+          <select id="reportJenisPelantikan_${cat.key}">
+            <option value="semua">Semua Jenis</option>
+            ${(cat.fields.find(f=>f.id==='jenisPelantikan')?.options||[]).map(o=>`<option value="${o}">${o}</option>`).join('')}
+          </select>
+        </div>` : ''}
         <div class="field">
           <label>Periode Rekap</label>
           <select id="reportType_${cat.key}">
             <option value="monthly">Rekap Per Bulanan</option>
             <option value="quarterly">Rekap Per Triwulan</option>
             <option value="semester">Rekap Semester</option>
+            ${cat.key==='disiplin' ? '<option value="all">Semua (Sepanjang Masa)</option>' : ''}
           </select>
         </div>
         <div class="field">
@@ -3304,6 +3351,7 @@ function reportPanelHTML(cat){
   </section>`;
 }
 function periodRangeText(type,year,period,acc){
+  if(type==='all') return periodInfo(type,year,period).label;
   const p=periodInfo(type,year,period);
   return acc ? `${p.label} (akumulasi dari Januari ${year})` : p.label;
 }
@@ -3314,6 +3362,16 @@ function formatBulanID(value){
   const idx = parseInt(m,10)-1;
   return (BULAN_NAMES[idx] || m) + ' ' + y;
 }
+/** Status masa tenggang Hukuman Disiplin: 'selesai' jika Tanggal Berakhir sudah
+ *  lewat (sebelum hari ini), selain itu 'berjalan' (termasuk saat Tanggal Berakhir
+ *  kosong/tidak valid, dianggap masih berjalan karena belum bisa dipastikan selesai). */
+function disiplinTenggangStatus(r){
+  const d = safeDate(r.detail?.tglBerakhir);
+  if(!d) return 'berjalan';
+  const today = new Date(); today.setHours(0,0,0,0);
+  return d.getTime() < today.getTime() ? 'selesai' : 'berjalan';
+}
+
 function renderCategoryReport(key,rebuild=false){
   const cat=CATEGORIES.find(c=>c.key===key);
   if(!cat) return;
@@ -3334,9 +3392,21 @@ function renderCategoryReport(key,rebuild=false){
   const year=parseInt(yearEl.value,10);
   const period=parseInt(periodEl.value,10);
   const acc=accEl.checked;
-  const list=filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key),cat,type,year,period,acc);
+  let list=filterRecordsByPeriod(state.records.filter(r=>r.kategoriKey===key),cat,type,year,period,acc);
+  const tenggangEl=document.getElementById(`reportTenggang_${key}`);
+  const tenggangFilter=tenggangEl?tenggangEl.value:'semua';
+  if(key==='disiplin' && tenggangFilter!=='semua'){
+    list=list.filter(r=> disiplinTenggangStatus(r)===tenggangFilter);
+  }
+  const jenisPelantikanEl=document.getElementById(`reportJenisPelantikan_${key}`);
+  const jenisPelantikanFilter=jenisPelantikanEl?jenisPelantikanEl.value:'semua';
+  if(key==='pelantikan' && jenisPelantikanFilter!=='semua'){
+    list=list.filter(r=> r.detail?.jenisPelantikan===jenisPelantikanFilter);
+  }
   const meta=document.getElementById(`reportMeta_${key}`);
-  meta.textContent=periodRangeText(type,year,period,acc)+` • ${list.length} data`;
+  const tenggangLabel=tenggangFilter==='berjalan'?' • Status: Sedang Menjalankan':(tenggangFilter==='selesai'?' • Status: Selesai':'');
+  const jenisPelantikanLabel=jenisPelantikanFilter!=='semua'?` • Jenis: ${jenisPelantikanFilter}`:'';
+  meta.textContent=periodRangeText(type,year,period,acc)+tenggangLabel+jenisPelantikanLabel+` • ${list.length} data`;
   const sum=document.getElementById(`reportSummary_${key}`);
   const groupField=EVENT_GROUP_FIELD[key];
   const statuses=cat.fields.filter(f=>f.type==='select').slice(0,3);
@@ -3423,6 +3493,270 @@ function refreshAllReportYearOptions(){
   });
 }
 
+/* =========================================================
+   REKAP DIKLAT — Pencarian per Pegawai & per Nama/Jenis Diklat
+   ========================================================= */
+function dkEsc(v){
+  return String(v == null ? '' : v).replace(/[&<>"']/g, c=> ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+function dkNorm(v){ return String(v||'').replace(/'/g,'').replace(/\s/g,'').toLowerCase(); }
+function dkRecords(){ return state.records.filter(r=> r.kategoriKey === 'diklat'); }
+function dkSortByDateDesc(list){
+  return list.slice().sort((a,b)=> String(b.detail?.tglMulai||'').localeCompare(String(a.detail?.tglMulai||'')));
+}
+
+/** Panel Rekap Diklat dibungkus dengan sub-menu: Rekap Periode | Cari per Pegawai | Cari per Diklat.
+ *  Rekap periode bawaan tetap utuh; hanya dibungkus dalam satu blok. */
+function reportPanelHTML(cat){
+  const base = reportPanelHTMLBase(cat);
+  if(cat.key !== 'diklat') return base;
+  const open = '<div class="card">';
+  const iOpen = base.indexOf(open);
+  const m = base.match(/<\/div>\s*<\/section>\s*$/);
+  if(iOpen < 0 || !m) return base;
+  const head = base.slice(0, iOpen + open.length);
+  const inner = base.slice(iOpen + open.length, m.index);
+  const jenisField = cat.fields.find(f=> f.id === 'jenisDiklat');
+  const jenisOpts = (jenisField?.options || []).map(o=> `<option value="${dkEsc(o)}">${dkEsc(o)}</option>`).join('');
+  return head + `
+      <div class="subtabs" id="diklatTabs">
+        <button data-key="periode" class="active">Rekap Periode</button>
+        <button data-key="pegawai">Cari per Pegawai</button>
+        <button data-key="nama">Cari per Nama / Jenis Diklat</button>
+      </div>
+      <div id="diklatSub-periode">${inner}</div>
+
+      <div id="diklatSub-pegawai" style="display:none;">
+        <h2>Pencarian Diklat per Pegawai</h2>
+        <p class="hint">Cari nama atau NIP pegawai untuk melihat seluruh diklat yang pernah diikuti. Pilih nama dari daftar untuk menampilkan satu pegawai, atau cukup ketik untuk menampilkan semua yang cocok.</p>
+        <div class="field-grid">
+          <div class="field full employee-search">
+            <label>Cari Pegawai (nama / NIP)</label>
+            <div class="employee-search-row"><input type="text" id="dkPegInput" autocomplete="off" placeholder="Ketik minimal 2 huruf..."></div>
+            <div class="employee-results" id="dkPegResults" style="display:none;"></div>
+          </div>
+        </div>
+        <div id="dkPegInfo"></div>
+        <div class="summary-cards" id="dkPegSummary"></div>
+        <div class="preview-wrap"><table class="data-table" id="dkPegTable"></table></div>
+        <div class="btn-row">
+          <button class="btn secondary" id="dkPegExcel">Ekspor Excel</button>
+          <button class="btn secondary" id="dkPegPdf">Ekspor PDF</button>
+        </div>
+      </div>
+
+      <div id="diklatSub-nama" style="display:none;">
+        <h2>Pencarian Diklat per Nama / Jenis Diklat</h2>
+        <p class="hint">Cari berdasarkan nama diklat dan/atau jenis diklat untuk melihat rincian kegiatan beserta pegawai yang mengikutinya.</p>
+        <div class="report-toolbar">
+          <div class="field" style="flex:1; min-width:220px;">
+            <label>Nama Diklat</label>
+            <input type="text" id="dkNamaInput" list="dkNamaList" autocomplete="off" placeholder="Ketik sebagian nama diklat...">
+            <datalist id="dkNamaList"></datalist>
+          </div>
+          <div class="field">
+            <label>Jenis Diklat</label>
+            <select id="dkJenisSelect"><option value="">Semua Jenis</option>${jenisOpts}</select>
+          </div>
+          <div class="field">
+            <label>Tahun (Tgl Mulai)</label>
+            <select id="dkTahunSelect"><option value="">Semua Tahun</option></select>
+          </div>
+          <div class="field">
+            <label>&nbsp;</label>
+            <button type="button" class="btn secondary" id="dkNamaReset">Reset</button>
+          </div>
+        </div>
+        <div class="report-meta" id="dkNamaMeta"></div>
+        <div class="summary-cards" id="dkNamaSummary"></div>
+        <div class="preview-wrap"><table class="data-table" id="dkNamaTable"></table></div>
+        <div class="btn-row">
+          <button class="btn secondary" id="dkNamaExcel">Ekspor Excel</button>
+          <button class="btn secondary" id="dkNamaPdf">Ekspor PDF</button>
+        </div>
+      </div>
+    ` + m[0];
+}
+
+const DK_PEG_STATE = { mode:'text', query:'', key:null };
+
+/** Daftar kandidat pegawai: gabungan Data Pegawai dan nama yang tercatat di data Diklat. */
+function dkPegawaiCandidates(){
+  const map = new Map();
+  const add = (nama, nip, jabatan, unit)=>{
+    const key = dkNorm(nip) || ('n:' + String(nama||'').trim().toLowerCase());
+    if(!key || key === 'n:') return;
+    if(!map.has(key)) map.set(key, { key, nama:nama||'', nip:nip||'', jabatan:jabatan||'', unit:unit||'' });
+  };
+  state.employees.forEach(e=> add(e.nama, e.nip, e.jabatan, e.unit));
+  dkRecords().forEach(r=> add(r.nama, r.nip, r.jabatan, r.unit));
+  return Array.from(map.values());
+}
+function dkRecordKey(r){ return dkNorm(r.nip) || ('n:' + String(r.nama||'').trim().toLowerCase()); }
+
+function dkRowCells(r){
+  const d = r.detail || {};
+  return [
+    dkEsc(d.namaDiklat||'-'), dkEsc(d.jenisDiklat||'-'), dkEsc(d.penyelenggara||'-'),
+    formatTanggalID(d.tglMulai), formatTanggalID(d.tglSelesai),
+    dkEsc(d.tempat||'-'), dkEsc(d.nomorSertifikat||'-')
+  ];
+}
+
+function renderDiklatPegawai(){
+  const table = document.getElementById('dkPegTable');
+  const info = document.getElementById('dkPegInfo');
+  const sum = document.getElementById('dkPegSummary');
+  if(!table) return;
+  const all = dkRecords();
+  const q = DK_PEG_STATE.query.trim().toLowerCase();
+  let list = [];
+  if(DK_PEG_STATE.mode === 'exact' && DK_PEG_STATE.key){
+    list = all.filter(r=> dkRecordKey(r) === DK_PEG_STATE.key);
+  } else if(q.length >= 2){
+    const qn = dkNorm(q);
+    list = all.filter(r=> String(r.nama||'').toLowerCase().includes(q) || dkNorm(r.nip).includes(qn));
+  } else {
+    info.innerHTML = ''; sum.innerHTML = '';
+    table.innerHTML = '<tr><td class="empty-state">Ketik nama atau NIP pegawai untuk melihat riwayat diklatnya.</td></tr>';
+    return;
+  }
+  list = dkSortByDateDesc(list);
+  const people = new Set(list.map(dkRecordKey));
+  if(DK_PEG_STATE.mode === 'exact' && DK_PEG_STATE.key){
+    const c = dkPegawaiCandidates().find(x=> x.key === DK_PEG_STATE.key);
+    if(c) info.innerHTML = `<div class="banner ${list.length?'info':'warn'}">${dkEsc(c.nama)} (${dkEsc(c.nip||'-')})${c.jabatan?' — '+dkEsc(c.jabatan):''}${c.unit?' — '+dkEsc(c.unit):''}</div>`;
+  } else {
+    info.innerHTML = `<div class="banner info">Menampilkan hasil pencarian "${dkEsc(DK_PEG_STATE.query.trim())}" — ${people.size} pegawai.</div>`;
+  }
+  const byJenis = {};
+  list.forEach(r=>{ const j = r.detail?.jenisDiklat || 'Tidak diisi'; byJenis[j] = (byJenis[j]||0)+1; });
+  sum.innerHTML = `<div class="summary-card"><div class="num">${list.length}</div><div class="lbl">Total Diklat Diikuti</div></div>` +
+    Object.entries(byJenis).map(([j,n])=> `<div class="summary-card"><div class="num">${n}</div><div class="lbl">${dkEsc(j)}</div></div>`).join('');
+  if(!list.length){
+    table.innerHTML = '<tr><td class="empty-state">Belum ada data diklat untuk pegawai ini.</td></tr>';
+    return;
+  }
+  table.innerHTML = '<tr>' + ['No','Nama Pegawai','NIP','Nama Diklat','Jenis Diklat','Penyelenggara','Tgl Mulai','Tgl Selesai','Tempat','No. Sertifikat','Catatan'].map(h=>`<th>${h}</th>`).join('') + '</tr>' +
+    list.map((r,i)=> '<tr>' + [i+1, dkEsc(r.nama||''), dkEsc(r.nip||'-'), ...dkRowCells(r), dkEsc(r.catatan||'-')].map(c=>`<td>${c}</td>`).join('') + '</tr>').join('');
+}
+
+function renderDiklatNama(){
+  const table = document.getElementById('dkNamaTable');
+  if(!table) return;
+  const q = document.getElementById('dkNamaInput').value.trim().toLowerCase();
+  const jenis = document.getElementById('dkJenisSelect').value;
+  const tahun = document.getElementById('dkTahunSelect').value;
+  let list = dkRecords().filter(r=>{
+    const d = r.detail || {};
+    if(q && !String(d.namaDiklat||'').toLowerCase().includes(q)) return false;
+    if(jenis && d.jenisDiklat !== jenis) return false;
+    if(tahun && String(d.tglMulai||'').slice(0,4) !== tahun) return false;
+    return true;
+  });
+  list.sort((a,b)=>{
+    const na = String(a.detail?.namaDiklat||'').toLowerCase(), nb = String(b.detail?.namaDiklat||'').toLowerCase();
+    if(na !== nb) return na.localeCompare(nb);
+    return String(b.detail?.tglMulai||'').localeCompare(String(a.detail?.tglMulai||''));
+  });
+  const kegiatan = new Set(list.map(r=> String(r.detail?.namaDiklat||'').trim().toLowerCase() + '|' + String(r.detail?.tglMulai||'')));
+  const pegawai = new Set(list.map(dkRecordKey));
+  const filters = [q && `nama "${document.getElementById('dkNamaInput').value.trim()}"`, jenis && `jenis ${jenis}`, tahun && `tahun ${tahun}`].filter(Boolean);
+  document.getElementById('dkNamaMeta').textContent = (filters.length ? 'Filter: ' + filters.join(', ') : 'Semua diklat') + ` • ${list.length} data`;
+  document.getElementById('dkNamaSummary').innerHTML =
+    `<div class="summary-card"><div class="num">${kegiatan.size}</div><div class="lbl">Kegiatan Diklat</div></div>` +
+    `<div class="summary-card"><div class="num">${list.length}</div><div class="lbl">Total Peserta</div></div>` +
+    `<div class="summary-card"><div class="num">${pegawai.size}</div><div class="lbl">Pegawai Berbeda</div></div>`;
+  if(!list.length){
+    table.innerHTML = '<tr><td class="empty-state">Tidak ada diklat yang cocok dengan pencarian.</td></tr>';
+    return;
+  }
+  table.innerHTML = '<tr>' + ['No','Nama Diklat','Jenis Diklat','Penyelenggara','Tgl Mulai','Tgl Selesai','Tempat','Nama Pegawai','NIP','Jabatan','Unit Kerja','No. Sertifikat'].map(h=>`<th>${h}</th>`).join('') + '</tr>' +
+    list.map((r,i)=>{
+      const c = dkRowCells(r); // [nama, jenis, penyelenggara, mulai, selesai, tempat, sertifikat]
+      return '<tr>' + [i+1, c[0], c[1], c[2], c[3], c[4], c[5], dkEsc(r.nama||''), dkEsc(r.nip||'-'), dkEsc(r.jabatan||'-'), dkEsc(r.unit||'-'), c[6]].map(x=>`<td>${x}</td>`).join('') + '</tr>';
+    }).join('');
+}
+
+/** Isi ulang saran nama diklat & pilihan tahun dari data terbaru, lalu render ulang hasil. */
+function refreshDiklatSearch(){
+  const dl = document.getElementById('dkNamaList');
+  if(!dl) return;
+  const names = Array.from(new Set(dkRecords().map(r=> String(r.detail?.namaDiklat||'').trim()).filter(Boolean))).sort((a,b)=> a.localeCompare(b));
+  dl.innerHTML = names.map(n=> `<option value="${dkEsc(n)}"></option>`).join('');
+  const sel = document.getElementById('dkTahunSelect');
+  const cur = sel.value;
+  const years = Array.from(new Set(dkRecords().map(r=> String(r.detail?.tglMulai||'').slice(0,4)).filter(y=> /^\d{4}$/.test(y)))).sort().reverse();
+  sel.innerHTML = '<option value="">Semua Tahun</option>' + years.map(y=> `<option value="${y}">${y}</option>`).join('');
+  if(years.includes(cur)) sel.value = cur;
+  renderDiklatPegawai();
+  renderDiklatNama();
+}
+
+function wireDiklatSearch(){
+  const tabs = document.getElementById('diklatTabs');
+  if(!tabs) return;
+  wireSimpleSubtabs('diklatTabs', {
+    periode:'diklatSub-periode', pegawai:'diklatSub-pegawai', nama:'diklatSub-nama',
+  }, (key)=>{
+    if(key === 'periode') renderCategoryReport('diklat', false);
+    else refreshDiklatSearch();
+  });
+
+  const input = document.getElementById('dkPegInput');
+  const box = document.getElementById('dkPegResults');
+  input.addEventListener('input', ()=>{
+    DK_PEG_STATE.mode = 'text';
+    DK_PEG_STATE.key = null;
+    DK_PEG_STATE.query = input.value;
+    const q = input.value.trim().toLowerCase();
+    renderDiklatPegawai();
+    if(q.length < 2){ box.style.display = 'none'; return; }
+    const qn = dkNorm(q);
+    const counts = {};
+    dkRecords().forEach(r=>{ const k = dkRecordKey(r); counts[k] = (counts[k]||0) + 1; });
+    const matches = dkPegawaiCandidates()
+      .filter(e=> String(e.nama||'').toLowerCase().includes(q) || dkNorm(e.nip).includes(qn))
+      .slice(0, 15);
+    if(!matches.length){ box.innerHTML = '<div>Tidak ditemukan</div>'; box.style.display = 'block'; return; }
+    box.innerHTML = matches.map((e,i)=> `<div data-idx="${i}">${dkEsc(e.nama)} — ${dkEsc(e.nip||'-')} <span style="color:var(--ink-soft);">(${counts[e.key]||0} diklat)</span></div>`).join('');
+    box.style.display = 'block';
+    box.querySelectorAll('div[data-idx]').forEach(div=>{
+      div.addEventListener('click', ()=>{
+        const emp = matches[parseInt(div.dataset.idx, 10)];
+        input.value = emp.nama;
+        DK_PEG_STATE.mode = 'exact';
+        DK_PEG_STATE.key = emp.key;
+        DK_PEG_STATE.query = emp.nama;
+        box.style.display = 'none';
+        renderDiklatPegawai();
+      });
+    });
+  });
+  document.addEventListener('click', (e)=>{
+    if(!e.target.closest('#diklatSub-pegawai')) box.style.display = 'none';
+  });
+
+  ['dkNamaInput','dkJenisSelect','dkTahunSelect'].forEach(id=>{
+    const el = document.getElementById(id);
+    el.addEventListener('input', renderDiklatNama);
+    el.addEventListener('change', renderDiklatNama);
+  });
+  document.getElementById('dkNamaReset').addEventListener('click', ()=>{
+    document.getElementById('dkNamaInput').value = '';
+    document.getElementById('dkJenisSelect').value = '';
+    document.getElementById('dkTahunSelect').value = '';
+    renderDiklatNama();
+  });
+
+  document.getElementById('dkPegExcel').addEventListener('click', ()=> exportTableToExcel('dkPegTable', `Diklat_per_Pegawai_${todayStamp()}.xlsx`, 'Diklat Pegawai'));
+  document.getElementById('dkPegPdf').addEventListener('click', ()=> exportTableToPDF('dkPegTable', `Diklat_per_Pegawai_${todayStamp()}.pdf`, 'Riwayat Diklat per Pegawai'));
+  document.getElementById('dkNamaExcel').addEventListener('click', ()=> exportTableToExcel('dkNamaTable', `Diklat_per_Nama_${todayStamp()}.xlsx`, 'Diklat'));
+  document.getElementById('dkNamaPdf').addEventListener('click', ()=> exportTableToPDF('dkNamaTable', `Diklat_per_Nama_${todayStamp()}.pdf`, 'Pencarian Diklat per Nama / Jenis'));
+
+  refreshDiklatSearch();
+}
+
 function wireCategoryReports(){
   CATEGORIES.forEach(cat=>{
     const typeEl=document.getElementById(`reportType_${cat.key}`);
@@ -3430,19 +3764,29 @@ function wireCategoryReports(){
     const periodEl=document.getElementById(`reportPeriod_${cat.key}`);
     const accEl=document.getElementById(`reportAcc_${cat.key}`);
     const basisEl=document.getElementById(`reportBasis_${cat.key}`);
+    const tenggangEl=document.getElementById(`reportTenggang_${cat.key}`);
+    const jenisPelantikanEl=document.getElementById(`reportJenisPelantikan_${cat.key}`);
     if(!typeEl) return;
     const rerender=()=>renderCategoryReport(cat.key,false);
     const rerenderFull=()=>renderCategoryReport(cat.key,true);
+    const syncAllState=()=>{
+      const isAll=typeEl.value==='all';
+      yearEl.disabled=isAll; periodEl.disabled=isAll; accEl.disabled=isAll;
+    };
     typeEl.addEventListener('change',()=>{
       const old=periodEl.value;
       periodEl.innerHTML=getPeriodOptions(typeEl.value);
       periodEl.value=Array.from(periodEl.options).some(o=>o.value===old)?old:(typeEl.value==='monthly'?String(new Date().getMonth()+1):'1');
+      syncAllState();
       rerender();
     });
     yearEl.addEventListener('change',rerender);
     periodEl.addEventListener('change',rerender);
     accEl.addEventListener('change',rerender);
     if(basisEl) basisEl.addEventListener('change', rerenderFull);
+    if(tenggangEl) tenggangEl.addEventListener('change', rerender);
+    if(jenisPelantikanEl) jenisPelantikanEl.addEventListener('change', rerender);
+    syncAllState();
     document.querySelector(`[data-report-excel="${cat.key}"]`).addEventListener('click',()=>{
       exportTableToExcel(`reportTable_${cat.key}`,`Rekap_${cat.sheet.replace(/\s+/g,'_')}_${todayStamp()}.xlsx`,cat.label);
     });
@@ -4145,6 +4489,7 @@ async function init(){
 
   wireDashboard();
   wireCategoryReports();
+  wireDiklatSearch();
   wireRekapPegawaiPanel();
   renderRekapPegawai(true);
 
