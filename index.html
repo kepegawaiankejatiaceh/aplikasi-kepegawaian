@@ -760,7 +760,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyyQXQiN4qlFKj8-QJzoYIeFyitRh9aaN1gleBIjdKaICRLJQfcc0kSaZkmmnKUZcVlSA/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz7jKZrT-Nudo3otdysrcBlFqAKf9YdzXzTzP3Mdh3zztaKy1OZkn9O1sCCmvNmvb49qg/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -1249,6 +1249,13 @@ async function handleSimpanKeLaporan(){
   renderRekapPegawai(true);
 }
 async function pushRecordToSheets(record){
+  // Kunci klasifikasi pegawai (Struktural/Fungsional/Jaksa/Tata Usaha) saat data disimpan,
+  // supaya laporan historis tidak berubah ketika pegawai kemudian dimutasi. Jika pegawai
+  // belum ditemukan di Data Pegawai, dikosongkan agar bisa dicocokkan lagi nanti.
+  if(!record.klasifikasi){
+    const b = detailDashBucket(findEmployeeForRecord(record, buildEmployeeIndex()));
+    if(b !== 'Tidak Diketahui') record.klasifikasi = b;
+  }
   const result = await apiPost({ record });
   return !result.error;
 }
@@ -3362,7 +3369,7 @@ function reportPanelHTMLBase(cat){
       </div>
       <div class="detail-dash-panel" id="reportDetailPanel_${cat.key}" style="display:none;">
         <h3>Rincian per Satuan Kerja &amp; Klasifikasi Jabatan</h3>
-        <p class="hint">Dihitung dari NIP pada setiap data ${cat.label}, dicocokkan dengan Data Pegawai Termuat. Kategori mengikuti data Jabatan/Golongan pegawai (Struktural, Fungsional, Jaksa, Tata Usaha); "Tidak Diketahui" berarti NIP tidak ditemukan pada Data Pegawai.</p>
+        <p class="hint">Dihitung dari NIP pada setiap data ${cat.label}, dicocokkan dengan Data Pegawai Termuat. Data yang diinput setelah pembaruan memakai klasifikasi yang dikunci saat input (tidak berubah walau pegawai dimutasi); data lama dicocokkan dengan Data Pegawai terkini. "Tidak Diketahui" berarti NIP/nama tidak ditemukan pada Data Pegawai.</p>
         <div class="summary-cards" id="reportDetailSummary_${cat.key}"></div>
         <div class="preview-wrap"><table class="data-table" id="reportDetailTable_${cat.key}"></table></div>
         <div class="btn-row">
@@ -3401,41 +3408,84 @@ function disiplinTenggangStatus(r){
    ========================================================= */
 const DETAIL_DASH_BUCKETS = ['Struktural','Fungsional','Jaksa','Tata Usaha','Tidak Diketahui'];
 
-/** Mencari Data Pegawai Termuat berdasarkan NIP (dibersihkan dari spasi/tanda
- *  kutip, diabaikan besar-kecil huruf) untuk mengambil Jabatan/Golongan/Eselon. */
-function findEmployeeByNip(nip){
-  const key = dkNorm(nip);
-  if(!key) return null;
-  return state.employees.find(e=> dkNorm(e.nip) === key) || null;
+/* Logika klasifikasi di bawah ini diport dari Aplikasi Pencarian Pegawai
+ * (Rekap Jabatan & Eselon + isJaksaGol), supaya angkanya konsisten. */
+const DETAIL_DASH_PELAKSANA = [
+  "Penelaah Penuntutan Dan Penegakan Hukum", "Penelaah Teknis Kebijakan",
+  "Operator Layanan Operasional", "Pengelola Penanganan Perkara",
+  "Petugas Barang Bukti", "Pemeriksa Forensik Digital",
+  "Pengolah Data Dan Informasi", "Penjaga Tahanan",
+  "Pengawal Yustisial", "Petugas Aset dan Barang Bukti", "Pranata Yustisial"
+];
+function detailDashTitleCase(str){
+  if(!str) return '';
+  return str.toLowerCase().split(' ').map(w=> w.charAt(0).toUpperCase() + w.slice(1)).join(' ');
+}
+function detailDashCleanJabatan(name){
+  if(!name) return 'Lain-lain';
+  let cleaned = String(name).split(/\bPada\b/i)[0];
+  ["Pelaksana","Penyelia","Pertama","Pratama","Ahli","Muda","Madya","Jenjang","Wilayah Kejaksaan Negeri","Mahir","Wilayah Kejaksaan Tinggi"]
+    .forEach(word=>{ cleaned = cleaned.replace(new RegExp(`\\b${word}\\b`, 'gi'), ''); });
+  let result = detailDashTitleCase(cleaned.replace(/\s+/g,' ').trim());
+  const kamus = {
+    "Anggaran Pendapatan Dan Belanja Negara": "Apbn",
+    "Pengelola Pengadaan Barang jasa": "Pengelola Pengadaan Barang/jasa",
+    "\\(Calon Jaksa \\)": "(Calon - Jaksa)",
+    "\\(Calon Jaksa\\)": "(Calon - Jaksa)",
+    "\\(Calon - Jaksa\\)": "(Calon - Jaksa)"
+  };
+  for(const lama in kamus) result = result.replace(new RegExp(lama,'gi'), kamus[lama]);
+  return result.replace(/\s+/g,' ').trim();
 }
 
-/** Klasifikasi pegawai menjadi salah satu dari: Struktural, Fungsional, Jaksa,
- *  Tata Usaha, atau Tidak Diketahui (jika NIP tidak ditemukan pada Data Pegawai
- *  Termuat). Memakai logika Struktural (jabatanStrukturalBucket) dan Jaksa
- *  (isJaksaGol) yang sama dengan Rekap Pegawai; sisanya (ada Jabatan/Golongan
- *  tapi bukan Struktural/Jaksa) dikelompokkan sebagai Fungsional atau Tata
- *  Usaha berdasarkan kata "fungsional" pada teks Jabatan/Golongan. */
+/** Indeks Data Pegawai Termuat untuk pencarian cepat: utama lewat NIP (hanya
+ *  angka, toleran terhadap spasi/tanda kutip/format lain), cadangan lewat nama. */
+function buildEmployeeIndex(){
+  const byNip = new Map(), byName = new Map();
+  state.employees.forEach(e=>{
+    const d = String(e.nip||'').split('/')[0].replace(/\D/g,'');
+    if(d.length >= 10 && !byNip.has(d)) byNip.set(d, e);
+    const n = String(e.nama||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+    if(n && !byName.has(n)) byName.set(n, e);
+  });
+  return { byNip, byName };
+}
+function findEmployeeForRecord(r, idx){
+  const d = String(r.nip||'').split('/')[0].replace(/\D/g,'');
+  if(d.length >= 10 && idx.byNip.has(d)) return idx.byNip.get(d);
+  const n = String(r.nama||'').toLowerCase().replace(/[^a-z0-9]/g,'');
+  return (n && idx.byName.get(n)) || null;
+}
+
+/** Klasifikasi pegawai: Struktural / Fungsional / Jaksa / Tata Usaha / Tidak Diketahui.
+ *  Urutan sama dengan Rekap Jabatan & Eselon pada Aplikasi Pencarian Pegawai:
+ *  1) Eselon terisi (bukan "-")                 -> Struktural
+ *  2) Jabatan keahlian/keterampilan/calon jaksa -> Fungsional (Fungsional Tertentu CPNS)
+ *  3) Jabatan termasuk daftar Pelaksana         -> Tata Usaha
+ *  4) Golongan/Pangkat memuat "jaksa" (isJaksaGol) -> Jaksa
+ *  5) Selain itu                                -> Fungsional */
 function detailDashBucket(e){
   if(!e) return 'Tidak Diketahui';
-  if(jabatanStrukturalBucket(e.eselon, e.jabatan)) return 'Struktural';
-  const jab = String(e.jabatan||'').toLowerCase();
-  const gol = String(e.golongan||'').toLowerCase();
+  const eselon = String(e.eselon||'').trim();
+  const jabRaw = String(e.jabatan||'');
+  if(!eselon && !jabRaw.trim() && !String(e.golongan||'').trim()) return 'Tidak Diketahui';
+  if(eselon !== '' && eselon !== '-') return 'Struktural';
+  if(/keahlian|keterampilan|calon jaksa/i.test(jabRaw)) return 'Fungsional';
+  const cleaned = detailDashCleanJabatan(jabRaw).toLowerCase();
+  if(DETAIL_DASH_PELAKSANA.some(pl=> cleaned.includes(pl.toLowerCase()))) return 'Tata Usaha';
   if(isJaksaGol(e.golongan)) return 'Jaksa';
-  if(jab.includes('fungsional') || gol.includes('fungsional')) return 'Fungsional';
-  if(jab || gol) return 'Tata Usaha';
-  return 'Tidak Diketahui';
-}
-function detailDashBucketForRecord(r){
-  return detailDashBucket(findEmployeeByNip(r.nip));
+  return 'Fungsional';
 }
 
 /** Menghitung rekap jumlah per Satuan Kerja x klasifikasi jabatan dari daftar
  *  record yang sudah difilter periode/filter lain pada Rekap kategori terkait. */
 function computeDetailDashRows(list){
   const perSatker = {};
+  const idx = buildEmployeeIndex();
   list.forEach(r=>{
     const satker = r.unit || 'Tidak Diketahui';
-    const bucket = detailDashBucketForRecord(r);
+    const stored = (r.klasifikasi && r.klasifikasi !== 'Tidak Diketahui' && DETAIL_DASH_BUCKETS.includes(r.klasifikasi)) ? r.klasifikasi : null;
+    const bucket = stored || detailDashBucket(findEmployeeForRecord(r, idx));
     if(!perSatker[satker]) perSatker[satker] = Object.fromEntries(DETAIL_DASH_BUCKETS.map(b=>[b,0]));
     perSatker[satker][bucket]++;
   });
