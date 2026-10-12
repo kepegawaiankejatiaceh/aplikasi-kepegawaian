@@ -296,6 +296,12 @@
     font-size:13px;
   }
   .toggle-row input{ width:16px; height:16px; }
+  .detail-dash-toggle-row{ margin-top:14px; }
+  .detail-dash-toggle{ display:inline-flex; align-items:center; gap:8px; }
+  .detail-dash-chevron{ display:inline-block; transition:transform .15s ease; font-size:11px; }
+  .detail-dash-toggle[aria-expanded="true"] .detail-dash-chevron{ transform:rotate(180deg); }
+  .detail-dash-panel{ margin-top:16px; padding-top:16px; border-top:1px dashed var(--line); }
+  .detail-dash-panel h3{ font-size:15px; margin:0 0 6px; }
   .employee-search{ position:relative; }
   .employee-results{
     position:absolute; z-index:5; top:100%; left:0; right:0;
@@ -546,7 +552,7 @@ nav.tabs button.active .nav-icon {
     <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <a class="sheet-link" id="sheetLink" href="https://subbagpegktaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
+    <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
   <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">data mysimkari &#8599;</a>
     <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
   </div>
@@ -3257,11 +3263,12 @@ function periodInfo(type,year,period){
   if(type==='quarterly') return {label:`Triwulan ${period} Tahun ${year}`, maxMonth:period*3};
   return {label:`Semester ${period} Tahun ${year}`, maxMonth:period*6};
 }
-function getPeriodOptions(type){
+function getPeriodOptions(type, selected){
+  const sel = v=> String(v)===String(selected) ? ' selected' : '';
   if(type==='all') return '';
-  if(type==='monthly') return BULAN_NAMES.map((m,i)=>`<option value="${i+1}">${m}</option>`).join('');
-  if(type==='quarterly') return [1,2,3,4].map(q=>`<option value="${q}">Triwulan ${q}</option>`).join('');
-  return [1,2].map(s=>`<option value="${s}">Semester ${s}</option>`).join('');
+  if(type==='monthly') return BULAN_NAMES.map((m,i)=>`<option value="${i+1}"${sel(i+1)}>${m}</option>`).join('');
+  if(type==='quarterly') return [1,2,3,4].map(q=>`<option value="${q}"${sel(q)}>Triwulan ${q}</option>`).join('');
+  return [1,2].map(s=>`<option value="${s}"${sel(s)}>Semester ${s}</option>`).join('');
 }
 function filterRecordsByPeriod(records,cat,type,year,period,accumulate){
   if(type==='all') return records.slice();
@@ -3278,7 +3285,7 @@ function filterRecordsByPeriod(records,cat,type,year,period,accumulate){
 function reportYearOptions(){
   const years=new Set(state.records.map(r=>safeDate(r.tanggalInput)?.getFullYear()).filter(Boolean));
   state.records.forEach(r=> CATEGORIES.forEach(cat=>{ const d=safeDate(reportDateValue(r,cat)); if(d) years.add(d.getFullYear()); }));
-  if(!years.size) years.add(new Date().getFullYear());
+  years.add(new Date().getFullYear()); // tahun berjalan selalu tersedia, walau belum ada data
   return Array.from(years).sort((a,b)=>b-a);
 }
 function reportPanelHTMLBase(cat){
@@ -3333,10 +3340,10 @@ function reportPanelHTMLBase(cat){
         </div>
         <div class="field">
           <label>Periode</label>
-          <select id="reportPeriod_${cat.key}">${getPeriodOptions('monthly')}</select>
+          <select id="reportPeriod_${cat.key}">${getPeriodOptions('monthly', defaultMonth)}</select>
         </div>
         <div class="toggle-row">
-          <input type="checkbox" id="reportAcc_${cat.key}">
+          <input type="checkbox" id="reportAcc_${cat.key}" checked>
           <label for="reportAcc_${cat.key}">Akumulasi sampai periode terpilih</label>
         </div>
       </div>
@@ -3346,6 +3353,22 @@ function reportPanelHTMLBase(cat){
       <div class="btn-row">
         <button class="btn secondary" data-report-excel="${cat.key}">Ekspor Excel</button>
         <button class="btn secondary" data-report-pdf="${cat.key}">Ekspor PDF</button>
+      </div>
+      <div class="detail-dash-toggle-row">
+        <button type="button" class="btn secondary detail-dash-toggle" id="reportDetailToggle_${cat.key}" aria-expanded="false">
+          <span class="detail-dash-toggle-label">Tampilkan Dashboard Detail</span>
+          <span class="detail-dash-chevron">&#9662;</span>
+        </button>
+      </div>
+      <div class="detail-dash-panel" id="reportDetailPanel_${cat.key}" style="display:none;">
+        <h3>Rincian per Satuan Kerja &amp; Klasifikasi Jabatan</h3>
+        <p class="hint">Dihitung dari NIP pada setiap data ${cat.label}, dicocokkan dengan Data Pegawai Termuat. Kategori mengikuti data Jabatan/Golongan pegawai (Struktural, Fungsional, Jaksa, Tata Usaha); "Tidak Diketahui" berarti NIP tidak ditemukan pada Data Pegawai.</p>
+        <div class="summary-cards" id="reportDetailSummary_${cat.key}"></div>
+        <div class="preview-wrap"><table class="data-table" id="reportDetailTable_${cat.key}"></table></div>
+        <div class="btn-row">
+          <button class="btn secondary" id="reportDetailExcel_${cat.key}">Ekspor Excel</button>
+          <button class="btn secondary" id="reportDetailPdf_${cat.key}">Ekspor PDF</button>
+        </div>
       </div>
     </div>
   </section>`;
@@ -3370,6 +3393,99 @@ function disiplinTenggangStatus(r){
   if(!d) return 'berjalan';
   const today = new Date(); today.setHours(0,0,0,0);
   return d.getTime() < today.getTime() ? 'selesai' : 'berjalan';
+}
+
+/* =========================================================
+   DASHBOARD DETAIL PER REKAP — rincian per Satuan Kerja &
+   klasifikasi jabatan (Struktural / Fungsional / Jaksa / Tata Usaha)
+   ========================================================= */
+const DETAIL_DASH_BUCKETS = ['Struktural','Fungsional','Jaksa','Tata Usaha','Tidak Diketahui'];
+
+/** Mencari Data Pegawai Termuat berdasarkan NIP (dibersihkan dari spasi/tanda
+ *  kutip, diabaikan besar-kecil huruf) untuk mengambil Jabatan/Golongan/Eselon. */
+function findEmployeeByNip(nip){
+  const key = dkNorm(nip);
+  if(!key) return null;
+  return state.employees.find(e=> dkNorm(e.nip) === key) || null;
+}
+
+/** Klasifikasi pegawai menjadi salah satu dari: Struktural, Fungsional, Jaksa,
+ *  Tata Usaha, atau Tidak Diketahui (jika NIP tidak ditemukan pada Data Pegawai
+ *  Termuat). Memakai logika Struktural (jabatanStrukturalBucket) dan Jaksa
+ *  (isJaksaGol) yang sama dengan Rekap Pegawai; sisanya (ada Jabatan/Golongan
+ *  tapi bukan Struktural/Jaksa) dikelompokkan sebagai Fungsional atau Tata
+ *  Usaha berdasarkan kata "fungsional" pada teks Jabatan/Golongan. */
+function detailDashBucket(e){
+  if(!e) return 'Tidak Diketahui';
+  if(jabatanStrukturalBucket(e.eselon, e.jabatan)) return 'Struktural';
+  const jab = String(e.jabatan||'').toLowerCase();
+  const gol = String(e.golongan||'').toLowerCase();
+  if(isJaksaGol(e.golongan)) return 'Jaksa';
+  if(jab.includes('fungsional') || gol.includes('fungsional')) return 'Fungsional';
+  if(jab || gol) return 'Tata Usaha';
+  return 'Tidak Diketahui';
+}
+function detailDashBucketForRecord(r){
+  return detailDashBucket(findEmployeeByNip(r.nip));
+}
+
+/** Menghitung rekap jumlah per Satuan Kerja x klasifikasi jabatan dari daftar
+ *  record yang sudah difilter periode/filter lain pada Rekap kategori terkait. */
+function computeDetailDashRows(list){
+  const perSatker = {};
+  list.forEach(r=>{
+    const satker = r.unit || 'Tidak Diketahui';
+    const bucket = detailDashBucketForRecord(r);
+    if(!perSatker[satker]) perSatker[satker] = Object.fromEntries(DETAIL_DASH_BUCKETS.map(b=>[b,0]));
+    perSatker[satker][bucket]++;
+  });
+  return Object.keys(perSatker).sort().map(satker=>{
+    const row = perSatker[satker];
+    const total = DETAIL_DASH_BUCKETS.reduce((s,b)=> s+row[b], 0);
+    return { satker, ...row, total };
+  });
+}
+
+function renderDetailDashTable(key, list){
+  const table = document.getElementById(`reportDetailTable_${key}`);
+  const sum = document.getElementById(`reportDetailSummary_${key}`);
+  if(!table) return;
+  const rows = computeDetailDashRows(list);
+  const totals = Object.fromEntries(DETAIL_DASH_BUCKETS.map(b=>[b,0]));
+  rows.forEach(r=> DETAIL_DASH_BUCKETS.forEach(b=> totals[b]+=r[b]));
+  const grandTotal = DETAIL_DASH_BUCKETS.reduce((s,b)=> s+totals[b], 0);
+  if(sum) sum.innerHTML = DETAIL_DASH_BUCKETS.map(b=>
+    `<div class="summary-card"><div class="num">${totals[b]}</div><div class="lbl">${dkEsc(b)}</div></div>`
+  ).join('') + `<div class="summary-card"><div class="num">${grandTotal}</div><div class="lbl">Total</div></div>`;
+  if(!rows.length){
+    table.innerHTML = '<tr><td class="empty-state">Tidak ada data pada periode/filter terpilih.</td></tr>';
+    return;
+  }
+  table.innerHTML = '<tr>' + ['No','Satuan Kerja', ...DETAIL_DASH_BUCKETS, 'Total'].map(h=>`<th>${dkEsc(h)}</th>`).join('') + '</tr>' +
+    rows.map((r,i)=> '<tr>' + [i+1, dkEsc(r.satker), ...DETAIL_DASH_BUCKETS.map(b=>r[b]), r.total].map(c=>`<td>${c}</td>`).join('') + '</tr>').join('') +
+    `<tr style="font-weight:600;"><td colspan="2">TOTAL KESELURUHAN</td>${DETAIL_DASH_BUCKETS.map(b=>`<td>${totals[b]}</td>`).join('')}<td>${grandTotal}</td></tr>`;
+}
+
+function wireDetailDashToggle(key){
+  const btn = document.getElementById(`reportDetailToggle_${key}`);
+  const panel = document.getElementById(`reportDetailPanel_${key}`);
+  if(!btn || !panel) return;
+  const label = btn.querySelector('.detail-dash-toggle-label');
+  btn.addEventListener('click', ()=>{
+    const willShow = panel.style.display === 'none';
+    panel.style.display = willShow ? '' : 'none';
+    btn.setAttribute('aria-expanded', String(willShow));
+    if(label) label.textContent = willShow ? 'Sembunyikan Dashboard Detail' : 'Tampilkan Dashboard Detail';
+    if(willShow) renderCategoryReport(key, false); // pastikan tabel detail terisi data terbaru saat dibuka
+  });
+  document.getElementById(`reportDetailExcel_${key}`)?.addEventListener('click', ()=>{
+    const cat = CATEGORIES.find(c=>c.key===key);
+    exportTableToExcel(`reportDetailTable_${key}`, `Dashboard_Detail_${(cat?.sheet||key).replace(/\s+/g,'_')}_${todayStamp()}.xlsx`, 'Dashboard Detail');
+  });
+  document.getElementById(`reportDetailPdf_${key}`)?.addEventListener('click', ()=>{
+    const cat = CATEGORIES.find(c=>c.key===key);
+    exportTableToPDF(`reportDetailTable_${key}`, `Dashboard_Detail_${(cat?.sheet||key).replace(/\s+/g,'_')}_${todayStamp()}.pdf`, `Dashboard Detail — Rekap ${cat?.label||key}`);
+  });
 }
 
 function renderCategoryReport(key,rebuild=false){
@@ -3407,6 +3523,7 @@ function renderCategoryReport(key,rebuild=false){
   const tenggangLabel=tenggangFilter==='berjalan'?' • Status: Sedang Menjalankan':(tenggangFilter==='selesai'?' • Status: Selesai':'');
   const jenisPelantikanLabel=jenisPelantikanFilter!=='semua'?` • Jenis: ${jenisPelantikanFilter}`:'';
   meta.textContent=periodRangeText(type,year,period,acc)+tenggangLabel+jenisPelantikanLabel+` • ${list.length} data`;
+  renderDetailDashTable(key, list);
   const sum=document.getElementById(`reportSummary_${key}`);
   const groupField=EVENT_GROUP_FIELD[key];
   const statuses=cat.fields.filter(f=>f.type==='select').slice(0,3);
@@ -3793,6 +3910,7 @@ function wireCategoryReports(){
     document.querySelector(`[data-report-pdf="${cat.key}"]`).addEventListener('click',()=>{
       exportTableToPDF(`reportTable_${cat.key}`,`Rekap_${cat.sheet.replace(/\s+/g,'_')}_${todayStamp()}.pdf`,`Rekap ${cat.label}`);
     });
+    wireDetailDashToggle(cat.key);
     renderCategoryReport(cat.key,true);
   });
 }
