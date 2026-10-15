@@ -765,7 +765,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbylYkTroACfW4u44CazXvS3QEtlqGvP8GQ2yAo-238t2d7hnlU8LRSKuH3nnoCEQOCPDw/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbzUoQvMtOWnl9tVgVpW1LPe9sZKCIo1lfA_pb13fDrYZV8X7i6yERnqlHOLh2TY7wBphA/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -3327,6 +3327,9 @@ async function kgbPostChunks(type, items, size=250){
   for(let i = 0; i < items.length; i += size){
     const res = await apiPost({ type, items: items.slice(i, i+size) });
     if(!res || res.error || !res.success) return { error: (res && res.error) || 'Gagal menyimpan ke Google Sheets.', added, updated, skipped };
+    if(typeof res.added !== 'number'){ // skrip lama membalas "sukses" tanpa memproses data
+      return { error: 'Web App di Google Apps Script belum diperbarui. Tempel code.gs terbaru, lalu Deploy > Manage deployments > ikon pensil > Version: New version > Deploy.', added, updated, skipped };
+    }
     added += res.added||0; updated += res.updated||0; skipped += res.skipped||0;
   }
   return { added, updated, skipped };
@@ -3674,7 +3677,9 @@ function kgbRenderActive(){
 
 async function kgbOnOpen(){
   kgbRenderActive(); // tampilkan cache lokal dulu
-  if(await loadKgbFromSheets()) kgbRenderActive();
+  if(!state.settings.webAppUrl) return;
+  if(await loadKgbFromSheets()){ kgbRenderActive(); return; }
+  showBanner('kgbDataBanner','warn','Data KGB belum bisa dimuat dari Google Sheets. Pastikan koneksi internet aktif dan code.gs terbaru sudah di-deploy sebagai versi baru. Menampilkan data tersimpan lokal.');
 }
 
 function wireKgbPanel(){
