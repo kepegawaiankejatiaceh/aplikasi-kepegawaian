@@ -552,7 +552,7 @@ nav.tabs button.active .nav-icon {
     <div class="subtitle">Pencatatan izin, diklat, magang, ujian kompetensi &amp; hukuman disiplin</div>
   </div>
   <div style="display:flex;gap:8px;flex-wrap:wrap;">
-    <a class="sheet-link" id="sheetLink" href="https://kepegawaiankejatiaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
+    <a class="sheet-link" id="sheetLink" href="https://subbagpegktaceh.github.io/dashboard/" target="_blank" rel="noopener">Pencarian Pegawai &#8599;</a>
   <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1W0Q5ciBSGLmVgEwqwI-wLyr5zb3a9jeqW2pN5qqTV8Y/edit?usp=drive_link" target="_blank" rel="noopener">data mysimkari &#8599;</a>
     <a class="sheet-link" id="sheetLink" href="https://docs.google.com/spreadsheets/d/1mI0tHWPwOtRO2_02mjkuzhg_oT9XrjGh-sRzndjQols/edit?usp=drive_link" target="_blank" rel="noopener">Spreadsheet Tujuan Simpan &#8599;</a>
   </div>
@@ -676,7 +676,12 @@ const CATEGORIES = [
   { key:'kgb', label:'Kenaikan Gaji Berkala', sheet:'Kenaikan Gaji Berkala', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
     { id:'periode', label:'Periode (Bulan)', type:'month' },
-    { id:'status', label:'Status', type:'select', options:['Disetujui','Ditolak'] },
+    { id:'nomorPengantar', label:'Nomor Pengantar', type:'text' },
+    { id:'kekuranganBerkas', label:'Kekurangan Berkas', type:'text' },
+    { id:'printPengantar', label:'Print Pengantar', type:'text' },
+    { id:'ck', label:'CK', type:'text' },
+    { id:'statusUsul', label:'Status', type:'select', options:['Di Kirim','Di Tolak'] },
+    { id:'catatanPenolakan', label:'Catatan Penolakan', type:'text' },
   ]},
   { key:'mutasilokal', label:'Mutasi Lokal', sheet:'Mutasi Lokal', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -760,7 +765,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbz7jKZrT-Nudo3otdysrcBlFqAKf9YdzXzTzP3Mdh3zztaKy1OZkn9O1sCCmvNmvb49qg/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbylYkTroACfW4u44CazXvS3QEtlqGvP8GQ2yAo-238t2d7hnlU8LRSKuH3nnoCEQOCPDw/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -816,6 +821,10 @@ let state = {
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
   usulModuleSelected: {}, // pegawai terpilih per modul { usulpangkat, pencantumangelar }
   usulModuleBerkasRows: {}, // baris dropdown Kekurangan Berkas per modul { usulpangkat:[''], pencantumangelar:[''] }
+  kgbData: [],          // Data KGB: {nip, nama, tahun:'Ganjil'|'Genap', bulan}
+  kgbSelesai: [],       // KGB Selesai: {nip, nama, tglUsul, tahunKgb, satker, status}
+  kgbPendEdits: {},     // isian TAHUN/BULAN yang belum disimpan, per NIP
+  kgbUpcomingView: [],  // baris yang sedang tampil di KGB Akan Datang
   rekapPegawaiList: [], // rekap 9 kolom per bulan: {bulan, satker, laki, perempuan, jaksaLk, jaksaPr, tuLk, tuPr, total}
 };
 
@@ -971,6 +980,7 @@ function showTab(tab){
   if(tab === 'report:pegawai') renderRekapPegawai(true);
   else if(tab.startsWith('report:')) renderCategoryReport(tab.slice(7), true);
   if(tab === 'report:diklat') refreshDiklatSearch();
+  if(tab === 'cat:kgb') kgbOnOpen();
 }
 
 let STANDARD_FIELDS = [
@@ -1289,6 +1299,7 @@ function rerenderVisibleData(){
   if(tab === 'report:pegawai') renderRekapPegawai(false);
   else if(tab.startsWith('report:')) renderCategoryReport(tab.slice(7), false);
   if(tab === 'report:diklat') refreshDiklatSearch();
+  if(tab === 'cat:kgb'){ renderKgbAkan(); renderRekapUsulModule('kgb', false); }
   if(tab === 'cat:cuti'){
     const activeSub = document.querySelector('#cutiMainTabs button.active');
     const key = activeSub ? activeSub.dataset.key : 'permohonan';
@@ -2863,22 +2874,18 @@ const USUL_MODULES = {
     emptyText: 'Tidak ada usul pencantuman gelar pada periode ini.',
   },
 };
+USUL_MODULES.kgb = {
+  label: 'Kenaikan Gaji Berkala',
+  berkasOptions: ['Pengajuan CK ke WAS','KGB Terakhir','SK Pangkat','SKP','CK','Print Pengantar Kasubbag','Kirim ke Asbin','Kelengkapan MySimkari'],
+  rekapHint: 'Daftar pegawai yang sedang diusulkan Kenaikan Gaji Berkalanya, dikelompokkan per periode.',
+  emptyText: 'Tidak ada usul KGB pada periode ini.',
+};
 const USUL_MODULE_KEYS = Object.keys(USUL_MODULES);
 
-function panelUsulModuleHTML(catKey){
-  const cfg = USUL_MODULES[catKey];
+/** Bagian form "Input Pegawai" gaya Usul Pangkat (dipakai juga oleh menu KGB). */
+function usulInputInnerHTML(catKey){
   const cat = CATEGORIES.find(c=>c.key===catKey);
   return `
-  <section class="panel" id="panel-cat-${catKey}">
-    <div class="card">
-      <h2>${cfg.label}</h2>
-      <div class="subtabs" id="usulModuleMainTabs_${catKey}">
-        <button data-key="input" class="active">Input Pegawai</button>
-        <button data-key="rekap">Rekap Usul</button>
-      </div>
-
-      <!-- ===== INPUT PEGAWAI ===== -->
-      <div id="usulModuleSub-input_${catKey}">
         <p class="hint">Pilih pegawai dari data yang telah dimuat, atau isi manual untuk pegawai lama / peserta magang / pihak non-pegawai.</p>
         <div class="toggle-row">
           <input type="checkbox" id="manual_${catKey}">
@@ -2921,6 +2928,24 @@ function panelUsulModuleHTML(catKey){
           <button class="btn secondary" data-reset-usul="${catKey}">Bersihkan Form</button>
         </div>
         <div id="formBanner_${catKey}"></div>
+`;
+}
+
+function panelUsulModuleHTML(catKey){
+  const cfg = USUL_MODULES[catKey];
+  const cat = CATEGORIES.find(c=>c.key===catKey);
+  return `
+  <section class="panel" id="panel-cat-${catKey}">
+    <div class="card">
+      <h2>${cfg.label}</h2>
+      <div class="subtabs" id="usulModuleMainTabs_${catKey}">
+        <button data-key="input" class="active">Input Pegawai</button>
+        <button data-key="rekap">Rekap Usul</button>
+      </div>
+
+      <!-- ===== INPUT PEGAWAI ===== -->
+      <div id="usulModuleSub-input_${catKey}">
+${usulInputInnerHTML(catKey)}
       </div>
 
       <!-- ===== REKAP USUL ===== -->
@@ -3076,6 +3101,7 @@ async function saveUsulModuleRecord(catKey){
   await fetchAllRecordsFromSheets();
   showBanner(`formBanner_${catKey}`,'ok', `${cfg.label} untuk ${nama} berhasil disimpan.`);
   resetUsulModuleForm(catKey);
+  if(catKey==='kgb') renderKgbAkan();
 }
 
 /* ---------- REKAP USUL (generik untuk semua USUL_MODULE_KEYS) ---------- */
@@ -3196,6 +3222,499 @@ function wireRekapUsulCardInteractions(catKey){
       pushUsulModuleFieldUpdate(catKey, inp.dataset.recordId, (detail)=>{ detail.catatanPenolakan = inp.value.trim(); });
     });
   });
+}
+
+/* =========================================================
+   KENAIKAN GAJI BERKALA — Data KGB | KGB Akan Datang | KGB Selesai | Rekap Usul
+   ========================================================= */
+const KGB_UNIT = 'kejaksaan tinggi aceh';
+const KGB_MAX_ROWS = 300;
+
+/** NIP -> hanya angka, maksimal 18 digit pertama (tanda ' dan karakter lain dibuang). */
+function kgbNip(v){
+  const d = String(v==null ? '' : v).replace(/\D/g,'');
+  return d.length > 18 ? d.slice(0,18) : d;
+}
+function kgbBulanIndex(v){
+  const t = String(v||'').trim().toLowerCase();
+  if(!t) return -1;
+  const i = BULAN_NAMES.findIndex(b=> b.toLowerCase() === t);
+  if(i >= 0) return i;
+  const n = parseInt(t,10);
+  return (n >= 1 && n <= 12 && String(n) === t) ? n-1 : -1;
+}
+function kgbTahunLabel(v){
+  const t = String(v||'').trim().toLowerCase();
+  return t === 'ganjil' ? 'Ganjil' : (t === 'genap' ? 'Genap' : '');
+}
+function kgbIsKejati(emp){
+  return String(emp?.unit||'').replace(/\s+/g,' ').trim().toLowerCase().includes(KGB_UNIT);
+}
+function kgbEmployeeMap(){
+  const m = new Map();
+  state.employees.forEach(e=>{ const k = kgbNip(e.nip); if(k.length >= 10 && !m.has(k)) m.set(k, e); });
+  return m;
+}
+function kgbIso(v){
+  if(v instanceof Date && !isNaN(v)){
+    const p = n=> String(n).padStart(2,'0');
+    return `${v.getFullYear()}-${p(v.getMonth()+1)}-${p(v.getDate())}`;
+  }
+  return String(v==null ? '' : v).trim();
+}
+
+/** Membaca baris Excel: mencari baris header, memetakan kolom, membersihkan nilai. */
+function kgbParseRows(aoa, kind){
+  const norm = v=> String(v==null ? '' : v).trim().toLowerCase().replace(/\s+/g,' ');
+  const need = kind === 'data' ? ['nip','tahun','bulan'] : ['nip','tahun kgb'];
+  const hi = aoa.findIndex(r=> { const set = r.map(norm); return need.every(n=> set.includes(n)); });
+  if(hi < 0){
+    return { error: kind === 'data'
+      ? 'Header tidak ditemukan. Kolom yang dibutuhkan: Nama, NIP, TAHUN, BULAN.'
+      : 'Header tidak ditemukan. Kolom yang dibutuhkan: Nama, NIP, Tgl Usul, Tahun KGB, Satuan Kerja, Status.' };
+  }
+  const head = aoa[hi].map(norm);
+  const c = { nama:head.indexOf('nama'), nip:head.indexOf('nip'), tahun:head.indexOf('tahun'), bulan:head.indexOf('bulan'),
+    tglUsul:head.indexOf('tgl usul'), tahunKgb:head.indexOf('tahun kgb'), satker:head.indexOf('satuan kerja'), status:head.indexOf('status') };
+  const cell = (r,i)=> i >= 0 ? r[i] : '';
+  const map = new Map();
+  const stats = { blank:0, noNip:0, numericNip:0, invalid:0, fileDuplicate:0 };
+  for(let i = hi+1; i < aoa.length; i++){
+    const r = aoa[i];
+    if(!r.some(v=> String(v==null ? '' : v).trim() !== '')){ stats.blank++; continue; }
+    const rawNip = cell(r,c.nip);
+    if(typeof rawNip === 'number'){ stats.numericNip++; continue; } // NIP angka = digit terakhir sudah rusak di Excel
+    const nip = kgbNip(rawNip);
+    if(nip.length < 10){ stats.noNip++; continue; }
+    const nama = String(cell(r,c.nama) || '').trim();
+    if(kind === 'data'){
+      const tRaw = String(cell(r,c.tahun) || '').trim(), bRaw = String(cell(r,c.bulan) || '').trim();
+      const tahun = kgbTahunLabel(tRaw), bi = kgbBulanIndex(bRaw);
+      if((tRaw && !tahun) || (bRaw && bi < 0)) stats.invalid++;
+      const item = { nip, nama, tahun, bulan: bi >= 0 ? BULAN_NAMES[bi] : '' };
+      if(map.has(nip)){
+        stats.fileDuplicate++;
+        const o = map.get(nip);
+        map.set(nip, { nip, nama: item.nama || o.nama, tahun: item.tahun || o.tahun, bulan: item.bulan || o.bulan });
+      } else map.set(nip, item);
+    } else {
+      const tahunKgb = String(cell(r,c.tahunKgb) || '').trim();
+      if(!/^\d{4}$/.test(tahunKgb)){ stats.invalid++; continue; }
+      const key = nip + '|' + tahunKgb;
+      if(map.has(key)){ stats.fileDuplicate++; continue; }
+      map.set(key, { nip, nama, tglUsul: kgbIso(cell(r,c.tglUsul)), tahunKgb, satker: String(cell(r,c.satker) || '').trim(), status: String(cell(r,c.status) || '').trim() });
+    }
+  }
+  return { items: Array.from(map.values()), stats };
+}
+
+function kgbReadExcel(file, kind, cb){
+  const reader = new FileReader();
+  reader.onload = (e)=>{
+    try{
+      const wb = XLSX.read(e.target.result, { type:'binary', cellDates:true });
+      const ws = wb.Sheets[wb.SheetNames[0]];
+      const aoa = XLSX.utils.sheet_to_json(ws, { header:1, defval:'', raw:true });
+      cb(kgbParseRows(aoa, kind));
+    }catch(err){ cb({ error: 'File tidak dapat dibaca: ' + err.message }); }
+  };
+  reader.onerror = ()=> cb({ error: 'File tidak dapat dibaca.' });
+  reader.readAsBinaryString(file);
+}
+
+async function kgbPostChunks(type, items, size=250){
+  let added = 0, updated = 0, skipped = 0;
+  for(let i = 0; i < items.length; i += size){
+    const res = await apiPost({ type, items: items.slice(i, i+size) });
+    if(!res || res.error || !res.success) return { error: (res && res.error) || 'Gagal menyimpan ke Google Sheets.', added, updated, skipped };
+    added += res.added||0; updated += res.updated||0; skipped += res.skipped||0;
+  }
+  return { added, updated, skipped };
+}
+
+async function loadKgbFromSheets(){
+  const url = state.settings.webAppUrl;
+  if(!url) return false;
+  try{
+    const res = await fetch(`${url}?action=getKgb`);
+    const json = await res.json();
+    if(json.error) return false;
+    state.kgbData = json.dataKgb || [];
+    state.kgbSelesai = json.selesai || [];
+    Store.set('kgbData', state.kgbData);
+    Store.set('kgbSelesai', state.kgbSelesai);
+    return true;
+  }catch(err){ return false; }
+}
+
+function kgbStatsText(st){
+  const p = [];
+  if(st.blank) p.push(`${st.blank} baris kosong diabaikan`);
+  if(st.noNip) p.push(`${st.noNip} baris tanpa NIP valid dilewati`);
+  if(st.numericNip) p.push(`${st.numericNip} baris dilewati karena NIP tersimpan sebagai angka di Excel (digit terakhir sudah rusak — ubah kolom NIP menjadi format Teks)`);
+  if(st.invalid) p.push(`${st.invalid} nilai tidak valid`);
+  if(st.fileDuplicate) p.push(`${st.fileDuplicate} duplikat di dalam file digabung`);
+  return p.length ? ' Catatan: ' + p.join('; ') + '.' : '';
+}
+
+async function kgbImportFile(kind, file){
+  const bannerId = kind === 'data' ? 'kgbDataBanner' : 'kgbSelesaiBanner';
+  if(!state.settings.webAppUrl){ showBanner(bannerId,'warn','URL Web App belum diatur — buka menu Pengaturan terlebih dahulu.'); return; }
+  showBanner(bannerId,'info','Membaca file Excel...');
+  kgbReadExcel(file, kind, async (parsed)=>{
+    if(parsed.error){ showBanner(bannerId,'warn',dkEsc(parsed.error)); return; }
+    if(!parsed.items.length){ showBanner(bannerId,'warn','Tidak ada baris data yang dapat diimpor.' + kgbStatsText(parsed.stats)); return; }
+    showBanner(bannerId,'info',`Mengirim ${parsed.items.length} baris ke Google Sheets...`);
+    const res = await kgbPostChunks(kind === 'data' ? 'kgbData' : 'kgbSelesai', parsed.items);
+    await loadKgbFromSheets();
+    kgbRenderActive();
+    if(res.error){
+      showBanner(bannerId,'warn',`Impor terhenti: ${dkEsc(res.error)} (sudah masuk: ${res.added} baru). Coba impor ulang — data yang sudah masuk tidak akan ganda.`);
+      return;
+    }
+    const msg = kind === 'data'
+      ? `Impor selesai: ${res.added} pegawai baru, ${res.updated} diperbarui.`
+      : `Impor selesai: ${res.added} data baru ditambahkan, ${res.skipped} sudah ada (dilewati).`;
+    showBanner(bannerId,'ok', msg + dkEsc(kgbStatsText(parsed.stats)));
+  });
+}
+
+function kgbExportAoa(headers, rows, filename, sheetName){
+  if(!rows.length){ alert('Tidak ada data untuk diekspor.'); return; }
+  const ws = XLSX.utils.aoa_to_sheet([headers, ...rows]); // string tetap string -> NIP 18 digit aman
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, sheetName);
+  XLSX.writeFile(wb, filename);
+}
+
+/* ---------- Tab: Data KGB ---------- */
+function kgbDataFiltered(){
+  const q = (document.getElementById('kgbDataSearch')?.value || '').trim().toLowerCase();
+  return state.kgbData.filter(d=> !q || String(d.nama||'').toLowerCase().includes(q) || String(d.nip||'').includes(q));
+}
+function renderKgbDataTable(){
+  const table = document.getElementById('kgbDataTable');
+  if(!table) return;
+  const list = kgbDataFiltered();
+  const filled = state.kgbData.filter(d=> d.tahun && d.bulan).length;
+  document.getElementById('kgbDataCount').textContent = `${list.length} data tampil • ${state.kgbData.length} total • ${filled} sudah lengkap TAHUN & BULAN`;
+  if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Belum ada Data KGB. Impor file Excel di atas.</td></tr>'; return; }
+  table.innerHTML = '<tr>' + ['No','Nama','NIP','TAHUN','BULAN'].map(h=>`<th>${h}</th>`).join('') + '</tr>' +
+    list.slice(0, 500).map((d,i)=> `<tr><td>${i+1}</td><td>${dkEsc(d.nama)}</td><td>${dkEsc(d.nip)}</td><td>${dkEsc(d.tahun||'-')}</td><td>${dkEsc(d.bulan||'-')}</td></tr>`).join('') +
+    (list.length > 500 ? `<tr><td colspan="5" class="empty-state">Menampilkan 500 data pertama — gunakan pencarian untuk mempersempit.</td></tr>` : '');
+}
+
+function kgbPendingEmployees(){
+  const byNip = new Map(state.kgbData.map(d=> [kgbNip(d.nip), d]));
+  const out = [];
+  state.employees.forEach(e=>{
+    if(!kgbIsKejati(e)) return;
+    const k = kgbNip(e.nip);
+    if(k.length < 10) return;
+    const d = byNip.get(k);
+    if(!d || !d.tahun || !d.bulan) out.push({ e, k, d });
+  });
+  return out;
+}
+function renderKgbPending(){
+  const box = document.getElementById('kgbPendList');
+  if(!box) return;
+  const q = (document.getElementById('kgbPendSearch').value || '').trim().toLowerCase();
+  const all = kgbPendingEmployees();
+  const list = all.filter(x=> !q || String(x.e.nama||'').toLowerCase().includes(q) || x.k.includes(q));
+  document.getElementById('kgbPendInfo').textContent = `${list.length} pegawai Kejaksaan Tinggi Aceh tampil • ${all.length} belum lengkap TAHUN/BULAN`;
+  if(!list.length){ box.innerHTML = '<div class="empty-state">Tidak ada pegawai yang perlu dilengkapi.</div>'; return; }
+  const shown = list.slice(0, KGB_MAX_ROWS);
+  box.innerHTML = '<table class="data-table"><tr><th>Nama</th><th>NIP</th><th>TAHUN</th><th>BULAN</th></tr>' +
+    shown.map(x=>{
+      const ed = state.kgbPendEdits[x.k] || {};
+      const tahun = ed.tahun !== undefined ? ed.tahun : (x.d?.tahun || '');
+      const bulan = ed.bulan !== undefined ? ed.bulan : (x.d?.bulan || '');
+      return `<tr>
+        <td>${dkEsc(x.e.nama)}</td><td>${dkEsc(x.k)}</td>
+        <td><select data-pend-nip="${x.k}" data-pend-field="tahun"><option value="">—</option>${['Ganjil','Genap'].map(t=>`<option value="${t}" ${t===tahun?'selected':''}>${t}</option>`).join('')}</select></td>
+        <td><select data-pend-nip="${x.k}" data-pend-field="bulan"><option value="">—</option>${BULAN_NAMES.map(b=>`<option value="${b}" ${b===bulan?'selected':''}>${b}</option>`).join('')}</select></td>
+      </tr>`;
+    }).join('') + '</table>' +
+    (list.length > KGB_MAX_ROWS ? `<div class="hint">Menampilkan ${KGB_MAX_ROWS} pegawai pertama — gunakan pencarian untuk menemukan pegawai lainnya.</div>` : '');
+}
+async function kgbSavePending(){
+  const entries = Object.entries(state.kgbPendEdits).filter(([,v])=> v.tahun || v.bulan);
+  if(!entries.length){ showBanner('kgbPendBanner','warn','Belum ada isian TAHUN/BULAN yang diubah.'); return; }
+  if(!state.settings.webAppUrl){ showBanner('kgbPendBanner','warn','URL Web App belum diatur — buka menu Pengaturan terlebih dahulu.'); return; }
+  const empMap = kgbEmployeeMap();
+  const items = entries.map(([k,v])=> ({ nip:k, nama: empMap.get(k)?.nama || '', tahun: v.tahun||'', bulan: v.bulan||'' }));
+  const btn = document.getElementById('kgbPendSave');
+  btn.disabled = true;
+  showBanner('kgbPendBanner','info','Menyimpan ke Google Sheets...');
+  const res = await kgbPostChunks('kgbData', items);
+  btn.disabled = false;
+  if(res.error){ showBanner('kgbPendBanner','warn','Gagal menyimpan: ' + dkEsc(res.error) + ' Data belum tersimpan.'); return; }
+  state.kgbPendEdits = {};
+  await loadKgbFromSheets();
+  kgbRenderActive();
+  showBanner('kgbPendBanner','ok',`Tersimpan: ${res.added} baru, ${res.updated} diperbarui.`);
+}
+
+/* ---------- Tab: KGB Selesai ---------- */
+function renderKgbSelesai(){
+  const table = document.getElementById('kgbSelesaiTable');
+  if(!table) return;
+  const sel = document.getElementById('kgbSelesaiTahun');
+  const curTahun = sel.value;
+  const years = Array.from(new Set(state.kgbSelesai.map(s=> s.tahunKgb).filter(Boolean))).sort().reverse();
+  sel.innerHTML = '<option value="">Semua Tahun</option>' + years.map(y=>`<option value="${y}" ${y===curTahun?'selected':''}>${y}</option>`).join('');
+  const q = (document.getElementById('kgbSelesaiSearch').value || '').trim().toLowerCase();
+  const list = state.kgbSelesai.filter(s=>
+    (!sel.value || s.tahunKgb === sel.value) &&
+    (!q || String(s.nama||'').toLowerCase().includes(q) || String(s.nip||'').includes(q)));
+  document.getElementById('kgbSelesaiCount').textContent = `${list.length} data tampil • ${state.kgbSelesai.length} total`;
+  if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Belum ada data KGB Selesai. Impor file Excel di atas.</td></tr>'; return; }
+  table.innerHTML = '<tr>' + ['No','Nama','NIP','Tgl Usul','Tahun KGB','Satuan Kerja','Status'].map(h=>`<th>${h}</th>`).join('') + '</tr>' +
+    list.slice(0, 500).map((s,i)=> `<tr><td>${i+1}</td><td>${dkEsc(s.nama)}</td><td>${dkEsc(s.nip)}</td><td>${dkEsc(s.tglUsul||'-')}</td><td>${dkEsc(s.tahunKgb)}</td><td>${dkEsc(s.satker||'-')}</td><td>${dkEsc(s.status||'-')}</td></tr>`).join('') +
+    (list.length > 500 ? `<tr><td colspan="7" class="empty-state">Menampilkan 500 data pertama — gunakan filter/pencarian.</td></tr>` : '');
+}
+
+/* ---------- Tab: KGB Akan Datang ---------- */
+/** Jadwal KGB = tahun KGB Selesai terakhir + 2 tahun, dengan bulan dari Data KGB.
+ *  Pegawai tanpa riwayat KGB Selesai: tahun diestimasi dari TAHUN Ganjil/Genap. */
+function kgbUpcomingRows(){
+  const empMap = kgbEmployeeMap();
+  const lastYear = new Map();
+  state.kgbSelesai.forEach(s=>{
+    if(String(s.status||'').trim().toLowerCase() !== 'selesai') return;
+    const k = kgbNip(s.nip), y = parseInt(s.tahunKgb,10);
+    if(!k || !y) return;
+    if(!lastYear.has(k) || y > lastYear.get(k)) lastYear.set(k, y);
+  });
+  const proposed = new Set(state.records.filter(r=> r.kategoriKey === 'kgb').map(r=> kgbNip(r.nip) + '|' + (r.detail?.periode || '')));
+  const curY = new Date().getFullYear();
+  const rows = [];
+  state.kgbData.forEach(d=>{
+    const k = kgbNip(d.nip), bi = kgbBulanIndex(d.bulan);
+    if(!k || bi < 0) return;
+    const parity = kgbTahunLabel(d.tahun);
+    let year, basis, anomali = false;
+    if(lastYear.has(k)){
+      year = lastYear.get(k) + 2; basis = 'selesai';
+      if(parity && ((year % 2 === 1) !== (parity === 'Ganjil'))) anomali = true;
+    } else if(parity){
+      year = curY; if((year % 2 === 1) !== (parity === 'Ganjil')) year++; basis = 'estimasi';
+    } else return;
+    const emp = empMap.get(k) || null;
+    const periode = `${year}-${String(bi+1).padStart(2,'0')}`;
+    rows.push({ k, nip:k, nama: emp?.nama || d.nama, emp, bulanIdx:bi, tahun:year, lastYear: lastYear.get(k)||null, basis, anomali, periode, diusulkan: proposed.has(k + '|' + periode) });
+  });
+  return rows.sort((a,b)=> (a.tahun*12+a.bulanIdx) - (b.tahun*12+b.bulanIdx) || String(a.nama).localeCompare(String(b.nama)));
+}
+
+function renderKgbAkan(){
+  const table = document.getElementById('kgbAkanTable');
+  if(!table) return;
+  const now = new Date(), curY = now.getFullYear(), curM = now.getMonth()+1;
+  const all = kgbUpcomingRows();
+  const selTahun = document.getElementById('kgbAkanTahun'), selBulan = document.getElementById('kgbAkanBulan'), selMode = document.getElementById('kgbAkanMode');
+  if(!selTahun.dataset.init){ // default: tahun & bulan berjalan
+    selTahun.dataset.init = '1';
+    const ys = Array.from(new Set([curY, ...all.map(r=>r.tahun)])).sort((a,b)=>a-b);
+    selTahun.innerHTML = '<option value="">Semua Tahun</option>' + ys.map(y=>`<option value="${y}">${y}</option>`).join('');
+    selTahun.value = String(curY);
+    selBulan.innerHTML = '<option value="">Semua Bulan</option>' + BULAN_NAMES.map((b,i)=>`<option value="${i+1}">${b}</option>`).join('');
+    selBulan.value = String(curM);
+  } else {
+    const have = new Set(Array.from(selTahun.options).map(o=>o.value));
+    const cur = selTahun.value;
+    all.forEach(r=>{ if(!have.has(String(r.tahun))) selTahun.add(new Option(String(r.tahun), String(r.tahun))); });
+    Array.from(selTahun.options).slice(1).sort((a,b)=>a.value-b.value).forEach(o=> selTahun.add(o));
+    selTahun.value = cur;
+  }
+  const q = (document.getElementById('kgbAkanSearch').value || '').trim().toLowerCase();
+  const nowIdx = curY*12 + (curM-1);
+  let list;
+  if(selMode.value === 'terlambat') list = all.filter(r=> r.tahun*12 + r.bulanIdx < nowIdx);
+  else list = all.filter(r=> (!selTahun.value || String(r.tahun) === selTahun.value) && (!selBulan.value || String(r.bulanIdx+1) === selBulan.value));
+  list = list.filter(r=> !q || String(r.nama||'').toLowerCase().includes(q) || r.nip.includes(q));
+  const noSched = state.kgbData.filter(d=> kgbBulanIndex(d.bulan) < 0).length;
+  document.getElementById('kgbAkanInfo').textContent =
+    `${list.length} pegawai tampil` + (noSched ? ` • ${noSched} pegawai di Data KGB belum punya BULAN (tidak bisa dijadwalkan)` : '');
+  state.kgbUpcomingView = list;
+  if(!list.length){
+    table.innerHTML = '<tr><td class="empty-state">Tidak ada pegawai yang akan memasuki masa KGB pada filter ini.</td></tr>';
+    return;
+  }
+  table.innerHTML = '<tr>' + ['No','Nama','NIP','Jabatan','Unit Kerja','KGB Terakhir','Jadwal KGB','Dasar','Aksi'].map(h=>`<th>${h}</th>`).join('') + '</tr>' +
+    list.slice(0, KGB_MAX_ROWS).map((r,i)=>{
+      const dasar = r.basis === 'selesai' ? `Selesai ${r.lastYear} + 2 tahun` : 'Estimasi (Ganjil/Genap)';
+      return `<tr>
+        <td>${i+1}</td><td>${dkEsc(r.nama)}</td><td>${dkEsc(r.nip)}</td>
+        <td>${dkEsc(r.emp?.jabatan||'-')}</td><td>${dkEsc(r.emp?.unit||'-')}</td>
+        <td>${r.lastYear || '-'}</td>
+        <td>${BULAN_NAMES[r.bulanIdx]} ${r.tahun}</td>
+        <td>${dasar}${r.anomali ? ' <span class="badge unsynced" title="Tahun jadwal tidak sesuai Ganjil/Genap pada Data KGB">Cek Ganjil/Genap</span>' : ''}</td>
+        <td>${r.diusulkan ? '<span class="badge synced">Sudah diusulkan</span>' : `<button type="button" class="btn-add-employee" data-kgb-add="${i}" title="Masukkan ke pengusulan KGB">+</button>`}</td>
+      </tr>`;
+    }).join('') + (list.length > KGB_MAX_ROWS ? `<tr><td colspan="9" class="empty-state">Menampilkan ${KGB_MAX_ROWS} pegawai pertama — persempit filter.</td></tr>` : '');
+}
+
+function kgbAddToUsul(row){
+  const emp = row.emp || { nama: row.nama, nip: row.nip, jabatan:'', unit:'' };
+  document.getElementById('manual_kgb').checked = false;
+  document.getElementById('pegawaiPicker_kgb').style.display = 'block';
+  document.getElementById('manualFields_kgb').style.display = 'none';
+  state.usulModuleSelected.kgb = emp;
+  document.getElementById('search_kgb').value = emp.nama;
+  document.getElementById('selected_kgb').textContent = `Terpilih: ${emp.nama} (${emp.nip||'-'})`;
+  document.getElementById('f_kgb_periode').value = row.periode;
+  const tgl = document.getElementById('f_kgb_tglInput');
+  if(!tgl.value){ const d = new Date(), p = n=> String(n).padStart(2,'0'); tgl.value = `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())}`; }
+  showBanner('formBanner_kgb','info',`Pengusulan KGB ${dkEsc(emp.nama)} — jadwal ${BULAN_NAMES[row.bulanIdx]} ${row.tahun}. Lengkapi Nomor Pengantar / Kekurangan Berkas, lalu simpan.`);
+  document.getElementById('kgbFormCard').scrollIntoView({ behavior:'smooth', block:'start' });
+}
+
+/* ---------- Panel & wiring ---------- */
+function panelKgbHTML(){
+  const catKey = 'kgb';
+  const cfg = USUL_MODULES.kgb;
+  return `
+  <section class="panel" id="panel-cat-kgb">
+    <div class="card">
+      <h2>Kenaikan Gaji Berkala</h2>
+      <div class="subtabs" id="kgbMainTabs">
+        <button data-key="data" class="active">Data KGB</button>
+        <button data-key="akan">KGB Akan Datang</button>
+        <button data-key="selesai">KGB Selesai</button>
+        <button data-key="rekap">Rekap Usul</button>
+      </div>
+
+      <!-- ===== DATA KGB ===== -->
+      <div id="kgbSub-data">
+        <p class="hint">Impor file Excel Data KGB (kolom: Nama, NIP, TAHUN, BULAN). TAHUN berisi Ganjil/Genap. NIP dicocokkan dengan Data Pegawai memakai 18 angka pertama.</p>
+        <div class="field-grid">
+          <div class="field full"><label>File Excel Data KGB</label><input type="file" id="kgbDataFile" accept=".xlsx,.xls"></div>
+        </div>
+        <div id="kgbDataBanner"></div>
+        <div class="field-grid" style="margin-top:10px;">
+          <div class="field full"><label>Cari di Data KGB (nama / NIP)</label><input type="text" id="kgbDataSearch" placeholder="Ketik nama atau NIP..."></div>
+        </div>
+        <div class="report-meta" id="kgbDataCount"></div>
+        <div class="preview-wrap"><table class="data-table" id="kgbDataTable"></table></div>
+        <div class="btn-row"><button class="btn secondary" id="kgbDataExport">Ekspor Excel</button></div>
+
+        <hr style="border:none;border-top:1px solid var(--line);margin:22px 0;">
+        <h3>Lengkapi TAHUN &amp; BULAN</h3>
+        <p class="hint">Daftar pegawai Kejaksaan Tinggi Aceh (dari Data Pegawai) yang belum ada di Data KGB atau TAHUN/BULAN-nya masih kosong. Pilih nilainya lalu klik Simpan.</p>
+        <div class="field-grid">
+          <div class="field full"><label>Cari Pegawai (nama / NIP)</label><input type="text" id="kgbPendSearch" placeholder="Ketik nama atau NIP..."></div>
+        </div>
+        <div class="report-meta" id="kgbPendInfo"></div>
+        <div class="preview-wrap" id="kgbPendList"></div>
+        <div class="btn-row"><button class="btn accent" id="kgbPendSave">Simpan Perubahan</button></div>
+        <div id="kgbPendBanner"></div>
+      </div>
+
+      <!-- ===== KGB AKAN DATANG ===== -->
+      <div id="kgbSub-akan" style="display:none;">
+        <p class="hint">Jadwal = tahun KGB Selesai terakhir + 2 tahun, dengan bulan dari Data KGB. Pegawai yang belum punya riwayat KGB Selesai diestimasi dari Ganjil/Genap. Klik + untuk memasukkan pegawai ke pengusulan.</p>
+        <div class="filters-row">
+          <div class="field"><label>Tahun</label><select id="kgbAkanTahun"></select></div>
+          <div class="field"><label>Bulan</label><select id="kgbAkanBulan"></select></div>
+          <div class="field"><label>Tampilkan</label>
+            <select id="kgbAkanMode"><option value="periode">Sesuai Bulan &amp; Tahun</option><option value="terlambat">Lewat Jatuh Tempo</option></select>
+          </div>
+          <div class="field"><label>Cari (nama / NIP)</label><input type="text" id="kgbAkanSearch" placeholder="Ketik nama atau NIP..."></div>
+        </div>
+        <div class="report-meta" id="kgbAkanInfo"></div>
+        <div class="preview-wrap"><table class="data-table" id="kgbAkanTable"></table></div>
+
+        <div class="card" id="kgbFormCard" style="margin-top:20px;">
+          <h3>Form Pengusulan KGB</h3>
+          ${usulInputInnerHTML(catKey)}
+        </div>
+      </div>
+
+      <!-- ===== KGB SELESAI ===== -->
+      <div id="kgbSub-selesai" style="display:none;">
+        <p class="hint">Impor file Excel KGB Selesai (kolom: Nama, NIP, Tgl Usul, Tahun KGB, Satuan Kerja, Status). Hanya data yang belum ada yang ditambahkan; kunci duplikat = NIP + Tahun KGB.</p>
+        <div class="field-grid">
+          <div class="field full"><label>File Excel KGB Selesai</label><input type="file" id="kgbSelesaiFile" accept=".xlsx,.xls"></div>
+        </div>
+        <div id="kgbSelesaiBanner"></div>
+        <div class="filters-row" style="margin-top:10px;">
+          <div class="field"><label>Tahun KGB</label><select id="kgbSelesaiTahun"><option value="">Semua Tahun</option></select></div>
+          <div class="field"><label>Cari (nama / NIP)</label><input type="text" id="kgbSelesaiSearch" placeholder="Ketik nama atau NIP..."></div>
+        </div>
+        <div class="report-meta" id="kgbSelesaiCount"></div>
+        <div class="preview-wrap"><table class="data-table" id="kgbSelesaiTable"></table></div>
+        <div class="btn-row"><button class="btn secondary" id="kgbSelesaiExport">Ekspor Excel</button></div>
+      </div>
+
+      <!-- ===== REKAP USUL ===== -->
+      <div id="kgbSub-rekap" style="display:none;">
+        <p class="hint">${cfg.rekapHint}</p>
+        <div class="filters-row">
+          <div class="field">
+            <label>Periode</label>
+            <select id="filterPeriodeUsul_${catKey}"><option value="">Semua Periode</option></select>
+          </div>
+        </div>
+        <div id="usulCards_${catKey}"></div>
+      </div>
+    </div>
+  </section>`;
+}
+
+function kgbRenderActive(){
+  const act = document.querySelector('#kgbMainTabs button.active');
+  const key = act ? act.dataset.key : 'data';
+  if(key === 'data'){ renderKgbDataTable(); renderKgbPending(); }
+  else if(key === 'akan') renderKgbAkan();
+  else if(key === 'selesai') renderKgbSelesai();
+  else if(key === 'rekap') renderRekapUsulModule('kgb', true);
+}
+
+async function kgbOnOpen(){
+  kgbRenderActive(); // tampilkan cache lokal dulu
+  if(await loadKgbFromSheets()) kgbRenderActive();
+}
+
+function wireKgbPanel(){
+  wireSimpleSubtabs('kgbMainTabs', {
+    data:'kgbSub-data', akan:'kgbSub-akan', selesai:'kgbSub-selesai', rekap:'kgbSub-rekap',
+  }, ()=> kgbRenderActive());
+  wireUsulModuleInput('kgb');
+  document.getElementById('filterPeriodeUsul_kgb').addEventListener('change', ()=> renderRekapUsulModule('kgb', false));
+
+  document.getElementById('kgbDataFile').addEventListener('change', (e)=>{
+    const f = e.target.files[0]; if(f) kgbImportFile('data', f); e.target.value = '';
+  });
+  document.getElementById('kgbSelesaiFile').addEventListener('change', (e)=>{
+    const f = e.target.files[0]; if(f) kgbImportFile('selesai', f); e.target.value = '';
+  });
+  document.getElementById('kgbDataSearch').addEventListener('input', renderKgbDataTable);
+  document.getElementById('kgbPendSearch').addEventListener('input', renderKgbPending);
+  document.getElementById('kgbPendList').addEventListener('change', (e)=>{
+    const sel = e.target.closest('select[data-pend-nip]'); if(!sel) return;
+    const k = sel.dataset.pendNip;
+    state.kgbPendEdits[k] = Object.assign(state.kgbPendEdits[k] || {}, { [sel.dataset.pendField]: sel.value });
+  });
+  document.getElementById('kgbPendSave').addEventListener('click', kgbSavePending);
+  document.getElementById('kgbDataExport').addEventListener('click', ()=>
+    kgbExportAoa(['Nama','NIP','TAHUN','BULAN'], state.kgbData.map(d=>[d.nama||'', String(d.nip||''), d.tahun||'', d.bulan||'']), `Data_KGB_${todayStamp()}.xlsx`, 'Data KGB'));
+
+  ['kgbAkanTahun','kgbAkanBulan','kgbAkanMode'].forEach(id=> document.getElementById(id).addEventListener('change', renderKgbAkan));
+  document.getElementById('kgbAkanSearch').addEventListener('input', renderKgbAkan);
+  document.getElementById('kgbAkanTable').addEventListener('click', (e)=>{
+    const btn = e.target.closest('[data-kgb-add]'); if(!btn) return;
+    const row = state.kgbUpcomingView[parseInt(btn.dataset.kgbAdd,10)];
+    if(row) kgbAddToUsul(row);
+  });
+
+  document.getElementById('kgbSelesaiTahun').addEventListener('change', renderKgbSelesai);
+  document.getElementById('kgbSelesaiSearch').addEventListener('input', renderKgbSelesai);
+  document.getElementById('kgbSelesaiExport').addEventListener('click', ()=>
+    kgbExportAoa(['No','Nama','NIP','Tgl Usul','Tahun KGB','Satuan Kerja','Status'], state.kgbSelesai.map((s,i)=>[String(i+1), s.nama||'', String(s.nip||''), s.tglUsul||'', String(s.tahunKgb||''), s.satker||'', s.status||'']), `KGB_Selesai_${todayStamp()}.xlsx`, 'KGB Selesai'));
+
+  renderKgbDataTable(); renderKgbPending(); renderKgbSelesai();
 }
 
 function wireUsulModulePanel(catKey){
@@ -4604,7 +5123,7 @@ async function init(){
     CATEGORIES.filter(c=> c.key!=='cuti' && !USUL_MODULE_KEYS.includes(c.key) && !MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryHTML).join('') +
     CATEGORIES.filter(c=> MONTHLY_RECAP_KEYS.includes(c.key)).map(panelCategoryWithMonthlyRekapHTML).join('') +
     panelCutiHTML() +
-    USUL_MODULE_KEYS.map(panelUsulModuleHTML).join('') +
+    USUL_MODULE_KEYS.map(k=> k==='kgb' ? panelKgbHTML() : panelUsulModuleHTML(k)).join('') +
     panelRekapPegawaiHTML() +
     CATEGORIES.map(reportPanelHTML).join('') +
     panelPengaturanHTML();
@@ -4621,6 +5140,8 @@ async function init(){
   state.bidangList = await Store.get('bidangList', []);
   state.sisaCutiList = await Store.get('sisaCutiList', []);
   state.rekapPegawaiList = await Store.get('rekapPegawaiList', []);
+  state.kgbData = await Store.get('kgbData', []);
+  state.kgbSelesai = await Store.get('kgbSelesai', []);
   refreshAllReportYearOptions();
 
   document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
@@ -4652,7 +5173,7 @@ async function init(){
   USUL_MODULE_KEYS.forEach(key=>{
     state.usulModuleSelected[key] = null;
     state.usulModuleBerkasRows[key] = [''];
-    wireUsulModulePanel(key);
+    if(key==='kgb') wireKgbPanel(); else wireUsulModulePanel(key);
   });
 
   wireDashboard();
