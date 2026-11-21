@@ -821,10 +821,12 @@ let state = {
   bulkEmployees: {},
   bulkManualNames: {},
   bidangList: [],      // {nip, nama, bidang} - default bidang per pegawai (modul Cuti)
-  sisaCutiList: [],    // {nip, nama, berjalan, tahunLalu, duaTahunLalu} - saldo sisa cuti (modul Cuti)
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
   usulModuleSelected: {}, // pegawai terpilih per modul { usulpangkat, pencantumangelar }
   usulModuleBerkasRows: {}, // baris dropdown Kekurangan Berkas per modul { usulpangkat:[''], pencantumangelar:[''] }
+  cutiHolidays: cutiDefaultHolidays(), // tanggal merah / cuti bersama (YYYY-MM-DD per baris), disimpan lokal
+  cutiDeferByNip: {},   // penangguhan cuti per NIP & tahun: {nip:{2025:true}}
+  peroranganEmp: null,  // pegawai yang sedang ditampilkan di Rekap Cuti Perorangan
   kgbData: [],          // Data KGB: {nip, nama, tahun:'Ganjil'|'Genap', bulan}
   kgbSelesai: [],       // KGB Selesai: {nip, nama, tglUsul, tahunKgb, satker, status}
   kgbPendEdits: {},     // isian TAHUN/BULAN yang belum disimpan, per NIP
@@ -1174,18 +1176,6 @@ async function fetchBidangFromSheets(){
     return true;
   }catch(err){ return false; }
 }
-async function fetchSisaCutiFromSheets(){
-  const url = state.settings.webAppUrl;
-  if(!url) return false;
-  try{
-    const res = await fetch(`${url}?action=getSisaCuti`);
-    const json = await res.json();
-    if(json.error) return false;
-    state.sisaCutiList = json.items || [];
-    Store.set('sisaCutiList', state.sisaCutiList);
-    return true;
-  }catch(err){ return false; }
-}
 async function fetchRekapPegawaiFromSheets(){
   const url = state.settings.webAppUrl;
   if(!url) return false;
@@ -1287,7 +1277,6 @@ async function refreshFromSheetsAndRender(){
   const [okRecords] = await Promise.all([
     fetchAllRecordsFromSheets(),
     fetchBidangFromSheets(),
-    fetchSisaCutiFromSheets(),
     fetchRekapPegawaiFromSheets(),
   ]);
   if(okRecords) await autoMarkCutiSelesai(); // tandai cuti yang sudah lewat tanggal selesainya
@@ -1309,7 +1298,7 @@ function rerenderVisibleData(){
     const key = activeSub ? activeSub.dataset.key : 'permohonan';
     if(key === 'berjalan') renderCutiBerjalan();
     if(key === 'rekap') renderRekapCutiAll();
-    if(key === 'pengaturan'){ renderBidangTable(); renderSisaCutiTable(); }
+    if(key === 'pengaturan'){ renderBidangTable(); }
   }
   const usulModuleKey = tab.startsWith('cat:') ? tab.slice(4) : null;
   if(usulModuleKey && USUL_MODULE_KEYS.includes(usulModuleKey)){
@@ -1845,7 +1834,7 @@ function panelCutiHTML(){
               </select>
             </div>
           </div>
-          <div id="sisaCutiInfo_cuti"></div>
+          <div id="cutiHitungInfo_cuti"></div>
         </div>
 
         <div id="manualFields_cuti" style="display:none;">
@@ -1876,12 +1865,7 @@ function panelCutiHTML(){
             <select id="statusAwal_cuti">${STATUS_AWAL_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}</select>
           </div>
           <div class="field full">
-            <label>Potong Sisa Cuti Dari</label>
-            <div style="display:flex;gap:18px;flex-wrap:wrap;padding-top:6px;">
-              <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="chkBerjalan_cuti" checked> Tahun Berjalan</label>
-              <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="chkTahunLalu_cuti"> 1 Tahun Sebelumnya</label>
-              <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:13px;"><input type="checkbox" id="chkDuaTahunLalu_cuti"> 2 Tahun Sebelumnya</label>
-            </div>
+            <p class="hint" style="margin:0;">Pemotongan sisa cuti dihitung otomatis (urutan N-2, N-1, lalu N) dari semua Cuti Tahunan berstatus Disetujui/Berjalan/Selesai, memakai hari kerja di luar tanggal merah. Tidak perlu memilih sumber potongan.</p>
           </div>
           <div class="field full"><label>Catatan Tambahan</label><textarea id="catatan_cuti"></textarea></div>
         </div>
@@ -1992,6 +1976,22 @@ function panelCutiHTML(){
             <button class="btn secondary" id="btnExportPeroranganExcel">Ekspor Excel</button>
             <button class="btn secondary" id="btnExportPeroranganPDF">Ekspor PDF</button>
           </div>
+          <div id="peroranganHitung_cuti" style="display:none;">
+            <hr style="border:none;border-top:1px solid var(--line);margin:22px 0;">
+            <h3>Perhitungan Cuti Tahunan</h3>
+            <p class="hint">N = cuti tahun berjalan, N-1 = sisa 1 tahun sebelumnya, N-2 = sisa 2 tahun sebelumnya. Hari kerja = Senin-Jumat di luar tanggal merah (atur di Pengaturan &rarr; Tanggal Merah). Perhitungan dimulai sejak tahun 2024; cuti sebelum 2024 diabaikan. Hanya Cuti Tahunan berstatus Disetujui/Berjalan/Selesai yang dihitung.</p>
+            <div class="field-grid">
+              <div class="field"><label>Tahun Berjalan (N)</label><input type="number" id="cutiHitungN" min="2024"></div>
+            </div>
+            <label style="font-size:13px;">Penangguhan cuti (centang jika cuti tahun tersebut ditangguhkan, sehingga sisanya dapat dibawa maksimal 12 hari)</label>
+            <div id="cutiHitungDefer" style="display:flex;gap:16px;flex-wrap:wrap;margin:6px 0 12px;"></div>
+            <div id="cutiHitungWarn"></div>
+            <h3>3. Ringkasan Tahun <span id="cutiHitungNLabel"></span></h3>
+            <div id="cutiHitungSummary"></div>
+            <h3 style="margin-top:18px;">4. Tabel Cuti per Tahun (12 baris per tahun)</h3>
+            <div id="cutiHitungTables"></div>
+            <div class="btn-row"><button class="btn secondary" id="btnExportCutiHitungExcel">Ekspor Excel</button></div>
+          </div>
         </div>
       </div>
 
@@ -1999,7 +1999,7 @@ function panelCutiHTML(){
       <div id="cutiSub-pengaturan" style="display:none;">
         <div class="subtabs" id="pengCutiTabs">
           <button data-key="bidang" class="active">Bidang</button>
-          <button data-key="sisacuti">Sisa Cuti</button>
+          <button data-key="tanggalmerah">Tanggal Merah</button>
         </div>
 
         <div id="pengCutiSub-bidang">
@@ -2015,14 +2015,14 @@ function panelCutiHTML(){
           <div class="preview-wrap"><table class="data-table" id="bidangTable"></table></div>
         </div>
 
-        <div id="pengCutiSub-sisacuti" style="display:none;">
-          <p class="hint">Sisa cuti default: Tahun Berjalan 12 hari, 1 Tahun Sebelumnya 6 hari, 2 Tahun Sebelumnya 6 hari. Gunakan tombol Edit untuk menyesuaikan per pegawai.</p>
+        <div id="pengCutiSub-tanggalmerah" style="display:none;">
+          <p class="hint">Tanggal merah &amp; cuti bersama (format YYYY-MM-DD, satu per baris) dipakai untuk menghitung hari kerja cuti tahunan. Tanggal tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah terisi; tambahkan Idul Fitri, Idul Adha, Nyepi, dll. sesuai SKB tahun terkait. Daftar ini tersimpan di perangkat/browser ini, jadi pastikan sama di setiap komputer pengguna.</p>
+          <div class="field-grid"><div class="field full"><label>Daftar Tanggal Merah</label><textarea id="cutiHolidayText" style="height:200px;"></textarea></div></div>
           <div class="btn-row">
-            <button class="btn secondary" id="btnSyncSisaCutiFromEmployees">Sinkronkan dari Data Pegawai</button>
-            <button class="btn accent" id="btnPushSisaCuti">Simpan ke Google Sheets</button>
+            <button class="btn accent" id="btnSaveCutiHoliday">Simpan</button>
+            <button class="btn secondary" id="btnResetCutiHoliday">Kembalikan ke Bawaan</button>
           </div>
-          <div id="sisaCutiBanner"></div>
-          <div class="preview-wrap"><table class="data-table" id="sisaCutiTable"></table></div>
+          <div id="cutiHolidayBanner"></div>
         </div>
       </div>
     </div>
@@ -2034,14 +2034,6 @@ function findBidang(nip){
   const e = state.bidangList.find(b=> b.nip === nip);
   return e ? e.bidang : '';
 }
-function findSisaCuti(nip){
-  return state.sisaCutiList.find(s=> s.nip === nip) || null;
-}
-function sisaCutiText(nip){
-  const s = findSisaCuti(nip);
-  if(!s) return 'Data sisa cuti belum tersedia. Sinkronkan pada Pengaturan &rarr; Sisa Cuti.';
-  return `Tahun Berjalan: ${s.berjalan} hari &middot; 1 Tahun Sebelumnya: ${s.tahunLalu} hari &middot; 2 Tahun Sebelumnya: ${s.duaTahunLalu} hari`;
-}
 function mergeEmployeesIntoBidang(){
   let added = 0;
   state.employees.forEach(e=>{
@@ -2052,44 +2044,6 @@ function mergeEmployeesIntoBidang(){
   });
   Store.set('bidangList', state.bidangList);
   return added;
-}
-function mergeEmployeesIntoSisaCuti(){
-  let added = 0;
-  state.employees.forEach(e=>{
-    if(!e.nip) return;
-    const existing = state.sisaCutiList.find(s=> s.nip === e.nip);
-    if(existing){ existing.nama = e.nama || existing.nama; }
-    else { state.sisaCutiList.push({ nip:e.nip, nama:e.nama, berjalan:12, tahunLalu:6, duaTahunLalu:6 }); added++; }
-  });
-  Store.set('sisaCutiList', state.sisaCutiList);
-  return added;
-}
-function deductSisaCuti(nip, jumlahHari, checks){
-  const s = findSisaCuti(nip);
-  const breakdown = { duaTahunLalu:0, tahunLalu:0, berjalan:0 };
-  if(!s || !jumlahHari) return breakdown;
-  let remaining = jumlahHari;
-  [
-    { key:'duaTahunLalu', on:checks.duaTahunLalu },
-    { key:'tahunLalu', on:checks.tahunLalu },
-    { key:'berjalan', on:checks.berjalan },
-  ].forEach(o=>{
-    if(!o.on || remaining <= 0) return;
-    const take = Math.min(s[o.key], remaining);
-    s[o.key] -= take;
-    breakdown[o.key] = take;
-    remaining -= take;
-  });
-  Store.set('sisaCutiList', state.sisaCutiList);
-  return breakdown;
-}
-function restoreSisaCuti(nip, breakdown){
-  const s = findSisaCuti(nip);
-  if(!s || !breakdown) return;
-  s.duaTahunLalu += breakdown.duaTahunLalu || 0;
-  s.tahunLalu += breakdown.tahunLalu || 0;
-  s.berjalan += breakdown.berjalan || 0;
-  Store.set('sisaCutiList', state.sisaCutiList);
 }
 function allCutiRecords(){
   return state.records.filter(r=> r.kategoriKey === 'cuti');
@@ -2208,6 +2162,232 @@ function wireSimpleSubtabs(navId, panels, onShow){
   });
 }
 
+/* =========================================================
+   PERHITUNGAN CUTI TAHUNAN PNS (diport dari "Aplikasi Perhitungan Cuti Tahunan PNS")
+   N = tahun berjalan, N-1 / N-2 = sisa 1 / 2 tahun sebelumnya. Dipotong urut N-2, N-1, N.
+   ========================================================= */
+const CUTI_START_YEAR = 2024;
+const CUTI_HARI = ['Minggu','Senin','Selasa','Rabu','Kamis','Jumat','Sabtu'];
+function cutiPd(str){ const [a,b,c] = String(str).slice(0,10).split('-').map(Number); return new Date(a,b-1,c); }
+function cutiIso(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function cutiFmt(str){ const d = cutiPd(str); return CUTI_HARI[d.getDay()]+', '+d.getDate()+' '+BULAN_NAMES[d.getMonth()]+' '+d.getFullYear(); }
+function cutiDefaultHolidays(){
+  const y = new Date().getFullYear(), h = [];
+  for(let i=y-3;i<=y+2;i++) ['01-01','05-01','06-01','08-17','12-25'].forEach(x=> h.push(i+'-'+x));
+  return h.join('\n');
+}
+function cutiHolidaySet(){
+  return new Set(String(state.cutiHolidays||'').split(/[\s,;]+/).filter(x=> /^\d{4}-\d{2}-\d{2}$/.test(x)));
+}
+function cutiWorkDays(s,e,H){
+  const out = [], end = cutiPd(e);
+  for(let d = cutiPd(s); d <= end; d.setDate(d.getDate()+1)){
+    const w = d.getDay();
+    if(w && w < 6 && !H.has(cutiIso(d))) out.push(cutiIso(d));
+  }
+  return out;
+}
+function cutiDeferFor(nip){
+  const key = kgbNip(nip) || String(nip||'');
+  if(!state.cutiDeferByNip[key]) state.cutiDeferByNip[key] = {};
+  return state.cutiDeferByNip[key];
+}
+/** Hari kerja Cuti Tahunan milik satu pegawai (status yang memotong), tanpa duplikat. */
+function cutiRecordDays(nip, H){
+  const key = kgbNip(nip), out = new Set();
+  allCutiRecords().forEach(r=>{
+    if(key ? kgbNip(r.nip) !== key : (!nip || r.nip !== nip)) return;
+    const d = r.detail || {};
+    if(d.jenisCuti !== 'Cuti Tahunan' || !CUTI_DEDUCTING_STATUSES.includes(d.statusCuti)) return;
+    const s = String(d.tglMulai||'').slice(0,10), e = String(d.tglSelesai||'').slice(0,10);
+    if(!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || e < s) return;
+    cutiWorkDays(s,e,H).forEach(x=> out.add(x));
+  });
+  return out;
+}
+function cutiCompute(daysIn, Nin, defer){
+  const y0 = CUTI_START_YEAR, N = Math.max(y0, Nin || y0);
+  let days = Array.from(new Set(daysIn)).sort();
+  const warns = [];
+  const before = days.filter(d=> +d.slice(0,4) < y0);
+  if(before.length) warns.push(before.length+' hari kerja sebelum tahun '+y0+' diabaikan.');
+  days = days.filter(d=> +d.slice(0,4) >= y0);
+  const yEnd = Math.max(N, ...days.map(d=> +d.slice(0,4)));
+  const rows = {}, st = {}, tot = {};
+  for(let y=y0;y<=yEnd;y++){ rows[y] = []; tot[y] = days.filter(d=> +d.slice(0,4) === y).length; }
+  for(let y=y0;y<=yEnd;y++){
+    const cap = defer[y-1] ? 12 : 6;
+    const n1 = y === y0 ? 0 : Math.min(12 - st[y-1].u0, cap);
+    const n2 = (y-1 > y0 && tot[y-1] === 0) ? st[y-1].n1 : 0;
+    const s = { n1, n2, u0:0, u1:0, u2:0, over:[] }; st[y] = s;
+    let r2 = n2, r1 = n1, r0 = 12;
+    days.filter(d=> +d.slice(0,4) === y).forEach(d=>{
+      if(r2 > 0){ r2--; s.u2++; rows[y-2].push({ d, via:y, t:'N-2' }); }
+      else if(r1 > 0){ r1--; s.u1++; rows[y-1].push({ d, via:y, t:'N-1' }); }
+      else if(r0 > 0){ r0--; s.u0++; rows[y].push({ d, via:y, t:'N' }); }
+      else s.over.push(d);
+    });
+    s.rem = r2+r1+r0; s.r2 = r2; s.r1 = r1; s.r0 = r0;
+  }
+  Object.keys(st).forEach(y=>{
+    if(st[y].over.length) warns.push('Tahun '+y+': melebihi sisa cuti yang tersedia, hari berikut tidak dapat dipotong: '+st[y].over.map(cutiFmt).join('; ')+'.');
+  });
+  return { y0, N, yEnd, rows, st, warns };
+}
+function cutiSummaryHTML(res, defer){
+  const { N, st } = res, s = st[N];
+  const avail = 12 + s.n1 + s.n2, used = s.u0 + s.u1 + s.u2;
+  const carry = Math.min(12 - s.u0, defer[N] ? 12 : 6);
+  const card = (num, lbl)=> `<div class="summary-card"><div class="num">${num}</div><div class="lbl">${lbl}</div></div>`;
+  return `<div class="summary-cards">${card(s.n2,`N-2 (${N-2})`)}${card(s.n1,`N-1 (${N-1})`)}${card(12,`N (${N})`)}${card(avail,'Total tersedia')}${card(used,`Terpakai di ${N}`)}${card(s.rem,'Sisa')}</div>` +
+    `<p class="hint" style="margin-top:10px;">Pemotongan dari N-2, lalu N-1, lalu N. Sisa yang dapat dibawa ke ${N+1}: N-1 = ${carry} hari${s.u1+s.u2===0 && used===0 ? '; N-2 = '+s.n1+' hari (tidak ada cuti sama sekali di '+N+')' : ''}.</p>`;
+}
+function cutiTablesHTML(res){
+  const { y0, N, yEnd, rows } = res;
+  let h = '';
+  for(let y=y0;y<=yEnd;y++){
+    const r = rows[y].slice().sort((a,b)=> a.d < b.d ? -1 : 1);
+    h += `<h3 style="margin:16px 0 6px;">Tahun ${y}${y===N?' (tahun berjalan)':y===N-1?' (N-1)':y===N-2?' (N-2)':''}</h3><div class="preview-wrap"><table class="data-table"><tr><th style="width:44px;">No</th><th>Tanggal cuti tahunan</th><th>Dipotong dari</th><th>Keterangan</th></tr>`;
+    for(let i=0;i<12;i++){
+      const x = r[i];
+      if(x) h += `<tr><td>${i+1}</td><td>${cutiFmt(x.d)}</td><td>Cuti ${y}</td><td>${x.via===y ? 'Dipakai di tahun berjalan' : 'Dipakai pada '+x.via+' (sisa '+x.t+')'}</td></tr>`;
+      else if(y < N) h += `<tr><td>${i+1}</td><td style="color:var(--ink-soft);font-style:italic;">Tidak digunakan</td><td>-</td><td>-</td></tr>`;
+      else h += `<tr><td>${i+1}</td><td>-</td><td>-</td><td>-</td></tr>`;
+    }
+    h += '</table></div>';
+  }
+  return h;
+}
+
+/** Rekap Cuti Perorangan: ringkasan + "Tabel Cuti per Tahun (12 baris per tahun)". */
+function renderCutiHitung(emp){
+  state.peroranganEmp = emp;
+  const wrap = document.getElementById('peroranganHitung_cuti');
+  if(!wrap) return;
+  wrap.style.display = 'block';
+  const nEl = document.getElementById('cutiHitungN');
+  if(!nEl.value) nEl.value = new Date().getFullYear();
+  const N = Math.max(CUTI_START_YEAR, parseInt(nEl.value,10) || new Date().getFullYear());
+  const defer = cutiDeferFor(emp.nip);
+  const res = cutiCompute(Array.from(cutiRecordDays(emp.nip, cutiHolidaySet())), N, defer);
+  let d = '';
+  for(let y=CUTI_START_YEAR;y<=res.N;y++) d += `<label style="display:flex;gap:6px;align-items:center;font-size:13px;font-weight:400;"><input type="checkbox" data-defer-year="${y}" ${defer[y]?'checked':''}> Tahun ${y}</label>`;
+  document.getElementById('cutiHitungDefer').innerHTML = d;
+  document.getElementById('cutiHitungWarn').innerHTML = res.warns.map(w=> `<div class="banner warn">${dkEsc(w)}</div>`).join('');
+  document.getElementById('cutiHitungNLabel').textContent = res.N;
+  document.getElementById('cutiHitungSummary').innerHTML = cutiSummaryHTML(res, defer);
+  document.getElementById('cutiHitungTables').innerHTML = cutiTablesHTML(res);
+}
+
+/** Rincian potongan (N-2 / N-1 / N) untuk satu cuti, berdasarkan alokasi otomatis seluruh cuti pegawai. */
+function cutiBreakdownForRecord(rec){
+  const out = { berjalan:0, tahunLalu:0, duaTahunLalu:0 };
+  const d = rec.detail || {};
+  if(d.jenisCuti !== 'Cuti Tahunan' || !CUTI_DEDUCTING_STATUSES.includes(d.statusCuti)) return out;
+  const s = String(d.tglMulai||'').slice(0,10), e = String(d.tglSelesai||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || e < s) return out;
+  const H = cutiHolidaySet();
+  const days = cutiRecordDays(rec.nip, H);
+  const mine = cutiWorkDays(s, e, H);
+  mine.forEach(x=> days.add(x));
+  const res = cutiCompute(Array.from(days), +e.slice(0,4), cutiDeferFor(rec.nip));
+  const bucket = {};
+  Object.values(res.rows).forEach(arr=> arr.forEach(x=>{ bucket[x.d] = x.t; }));
+  mine.forEach(x=>{
+    const t = bucket[x];
+    if(t === 'N') out.berjalan++; else if(t === 'N-1') out.tahunLalu++; else if(t === 'N-2') out.duaTahunLalu++;
+  });
+  return out;
+}
+/** Mengisi kolom rincian potongan pada detail cuti (informasi; saldo sebenarnya selalu dihitung ulang). */
+function applyCutiBreakdown(detail, nip){
+  const bd = cutiBreakdownForRecord({ nip, detail });
+  detail.potongBerjalanHari = bd.berjalan;
+  detail.potongTahunLaluHari = bd.tahunLalu;
+  detail.potongDuaTahunLaluHari = bd.duaTahunLalu;
+  detail.tahunBerjalan = bd.berjalan > 0 ? 'Ya' : 'Tidak';
+  detail.tahunLalu = bd.tahunLalu > 0 ? 'Ya' : 'Tidak';
+  detail.duaTahunLalu = bd.duaTahunLalu > 0 ? 'Ya' : 'Tidak';
+  detail.sudahDipotong = (detail.jenisCuti === 'Cuti Tahunan' && CUTI_DEDUCTING_STATUSES.includes(detail.statusCuti)) ? 'Ya' : 'Tidak';
+}
+/** Peringatan baru (melebihi sisa cuti) jika cuti Tahunan berikut ditambahkan; kosong bila aman. */
+function cutiOverLimitWarnings(nip, detail){
+  if(detail.jenisCuti !== 'Cuti Tahunan' || !CUTI_DEDUCTING_STATUSES.includes(detail.statusCuti)) return [];
+  const s = String(detail.tglMulai||'').slice(0,10), e = String(detail.tglSelesai||'').slice(0,10);
+  if(!/^\d{4}-\d{2}-\d{2}$/.test(s) || !/^\d{4}-\d{2}-\d{2}$/.test(e) || e < s) return [];
+  const H = cutiHolidaySet(), defer = cutiDeferFor(nip), N = +s.slice(0,4);
+  const base = Array.from(cutiRecordDays(nip, H));
+  const cur = cutiCompute(base, N, defer);
+  const aft = cutiCompute(base.concat(cutiWorkDays(s, e, H)), N, defer);
+  return aft.warns.filter(w=> !cur.warns.includes(w));
+}
+
+/** Form Izin Cuti: untuk Cuti Tahunan, Jumlah Hari = hari kerja (Senin-Jumat di luar tanggal merah). */
+function cutiAutoJumlahHari(){
+  const jenis = document.getElementById('f_cuti_jenisCuti').value;
+  const s = document.getElementById('f_cuti_tglMulai').value, e = document.getElementById('f_cuti_tglSelesai').value;
+  if(jenis !== 'Cuti Tahunan' || !s || !e || e < s) return;
+  document.getElementById('f_cuti_jumlahHari').value = cutiWorkDays(s, e, cutiHolidaySet()).length;
+}
+/** Form Izin Cuti: saldo hasil perhitungan otomatis + dampak cuti yang sedang diisi. */
+function renderCutiPreview(){
+  const box = document.getElementById('cutiHitungInfo_cuti');
+  if(!box) return;
+  const emp = state.cutiSelected;
+  if(!emp || !kgbNip(emp.nip)){ box.innerHTML = ''; return; }
+  const H = cutiHolidaySet();
+  const jenis = document.getElementById('f_cuti_jenisCuti').value;
+  const s = document.getElementById('f_cuti_tglMulai').value, e = document.getElementById('f_cuti_tglSelesai').value;
+  const hasNew = jenis === 'Cuti Tahunan' && s && e && e >= s;
+  const N = /^\d{4}/.test(s) ? +s.slice(0,4) : new Date().getFullYear();
+  const defer = cutiDeferFor(emp.nip);
+  const base = Array.from(cutiRecordDays(emp.nip, H));
+  const cur = cutiCompute(base, N, defer), c = cur.st[cur.N];
+  let html = `<div class="banner info">Perhitungan otomatis Cuti Tahunan ${cur.N} (hari kerja, ketentuan N-2/N-1/N) — N-2: ${c.n2} &middot; N-1: ${c.n1} &middot; N: 12 &middot; Terpakai: ${c.u0+c.u1+c.u2} &middot; <b>Sisa: ${c.rem} hari</b></div>`;
+  if(hasNew){
+    const nw = cutiWorkDays(s, e, H);
+    const aft = cutiCompute(base.concat(nw), N, defer), a = aft.st[aft.N];
+    html += `<div class="banner info">Cuti yang diisi: ${nw.length} hari kerja &rarr; sisa menjadi <b>${a.rem} hari</b>. Jumlah Hari diisi otomatis dari hari kerja.</div>`;
+    aft.warns.filter(w=> !cur.warns.includes(w)).forEach(w=>{ html += `<div class="banner warn">${dkEsc(w)}</div>`; });
+  }
+  box.innerHTML = html;
+}
+function wireCutiHitung(){
+  const nEl = document.getElementById('cutiHitungN');
+  nEl.value = new Date().getFullYear();
+  nEl.addEventListener('input', ()=>{ if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp); });
+  document.getElementById('cutiHitungDefer').addEventListener('change', (ev)=>{
+    const cb = ev.target.closest('input[data-defer-year]');
+    if(!cb || !state.peroranganEmp) return;
+    cutiDeferFor(state.peroranganEmp.nip)[cb.dataset.deferYear] = cb.checked;
+    Store.set('cutiDefer', state.cutiDeferByNip);
+    renderCutiHitung(state.peroranganEmp);
+  });
+  document.getElementById('btnExportCutiHitungExcel').addEventListener('click', ()=>{
+    const emp = state.peroranganEmp; if(!emp) return;
+    const N = Math.max(CUTI_START_YEAR, parseInt(nEl.value,10) || new Date().getFullYear());
+    const res = cutiCompute(Array.from(cutiRecordDays(emp.nip, cutiHolidaySet())), N, cutiDeferFor(emp.nip));
+    const out = [];
+    for(let y=res.y0;y<=res.yEnd;y++){
+      const r = res.rows[y].slice().sort((a,b)=> a.d < b.d ? -1 : 1);
+      for(let i=0;i<12;i++){
+        const x = r[i];
+        out.push([String(i+1), String(y), x ? cutiFmt(x.d) : (y < res.N ? 'Tidak digunakan' : '-'), x ? 'Cuti '+y : '-', x ? (x.via===y ? 'Dipakai di tahun berjalan' : 'Dipakai pada '+x.via+' (sisa '+x.t+')') : '-']);
+      }
+    }
+    kgbExportAoa(['No','Tahun','Tanggal cuti tahunan','Dipotong dari','Keterangan'], out, `Tabel_Cuti_Tahunan_${(emp.nama||'pegawai').replace(/\s+/g,'_')}_${todayStamp()}.xlsx`, 'Cuti per Tahun');
+  });
+  const ta = document.getElementById('cutiHolidayText');
+  document.getElementById('btnSaveCutiHoliday').addEventListener('click', ()=>{
+    state.cutiHolidays = ta.value;
+    Store.set('cutiHolidays', state.cutiHolidays);
+    showBanner('cutiHolidayBanner','ok','Tanggal merah disimpan di perangkat ini.');
+    if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp);
+    cutiAutoJumlahHari(); renderCutiPreview();
+  });
+  document.getElementById('btnResetCutiHoliday').addEventListener('click', ()=>{ ta.value = cutiDefaultHolidays(); });
+}
+
 /* ---------- PERMOHONAN CUTI ---------- */
 function wireCutiPermohonan(){
   const manualCheckbox = document.getElementById('manual_cuti');
@@ -2215,7 +2395,11 @@ function wireCutiPermohonan(){
     document.getElementById('pegawaiPicker_cuti').style.display = manualCheckbox.checked ? 'none' : 'block';
     document.getElementById('manualFields_cuti').style.display = manualCheckbox.checked ? 'block' : 'none';
     state.cutiSelected = null;
-    document.getElementById('sisaCutiInfo_cuti').innerHTML = '';
+    document.getElementById('cutiHitungInfo_cuti').innerHTML = '';
+  });
+  ['f_cuti_jenisCuti','f_cuti_tglMulai','f_cuti_tglSelesai'].forEach(id=>{
+    const el = document.getElementById(id);
+    ['change','input'].forEach(ev=> el.addEventListener(ev, ()=>{ cutiAutoJumlahHari(); renderCutiPreview(); }));
   });
 
   const searchInput = document.getElementById('search_cuti');
@@ -2237,7 +2421,7 @@ function wireCutiPermohonan(){
         searchInput.value = emp.nama;
         resultsBox.style.display = 'none';
         document.getElementById('bidang_cuti').value = findBidang(emp.nip);
-        showBanner('sisaCutiInfo_cuti', findSisaCuti(emp.nip) ? 'info' : 'warn', 'Sisa Cuti — ' + sisaCutiText(emp.nip));
+        renderCutiPreview();
       });
     });
   });
@@ -2256,14 +2440,11 @@ function resetCutiForm(){
   document.getElementById('search_cuti').value = '';
   document.getElementById('selected_cuti').textContent = '';
   document.getElementById('bidang_cuti').value = '';
-  document.getElementById('sisaCutiInfo_cuti').innerHTML = '';
+  document.getElementById('cutiHitungInfo_cuti').innerHTML = '';
   ['manualNama','manualNip','manualJabatan','manualUnit'].forEach(p=> document.getElementById(`${p}_cuti`).value='');
   document.getElementById('bidangManual_cuti').value = '';
   ['jenisCuti','tglMulai','tglSelesai','jumlahHari','alasan','nomorSurat','pejabat'].forEach(id=> document.getElementById(`f_cuti_${id}`).value='');
   document.getElementById('statusAwal_cuti').value = 'Pengajuan';
-  document.getElementById('chkBerjalan_cuti').checked = true;
-  document.getElementById('chkTahunLalu_cuti').checked = false;
-  document.getElementById('chkDuaTahunLalu_cuti').checked = false;
   document.getElementById('catatan_cuti').value = '';
   state.cutiSelected = null;
   document.getElementById('formBanner_cuti').innerHTML = '';
@@ -2290,12 +2471,6 @@ async function saveCutiRecord(){
   if(!bidang){ showBanner('formBanner_cuti','warn','Pilih Bidang terlebih dahulu.'); return; }
   if(!state.settings.webAppUrl){ showBanner('formBanner_cuti','warn','URL Web App belum diatur — buka tab Pengaturan terlebih dahulu agar data bisa tersimpan realtime.'); return; }
 
-  const jumlahHari = parseFloat(document.getElementById('f_cuti_jumlahHari').value) || 0;
-  const checks = {
-    berjalan: document.getElementById('chkBerjalan_cuti').checked,
-    tahunLalu: document.getElementById('chkTahunLalu_cuti').checked,
-    duaTahunLalu: document.getElementById('chkDuaTahunLalu_cuti').checked,
-  };
   const statusAwal = document.getElementById('statusAwal_cuti').value;
 
   const detail = {
@@ -2307,25 +2482,17 @@ async function saveCutiRecord(){
     nomorSurat: document.getElementById('f_cuti_nomorSurat').value,
     pejabat: document.getElementById('f_cuti_pejabat').value,
     bidang,
-    tahunBerjalan: checks.berjalan ? 'Ya' : 'Tidak',
-    tahunLalu: checks.tahunLalu ? 'Ya' : 'Tidak',
-    duaTahunLalu: checks.duaTahunLalu ? 'Ya' : 'Tidak',
+    tahunBerjalan: 'Tidak', tahunLalu: 'Tidak', duaTahunLalu: 'Tidak',
     statusAwal,
     statusCuti: statusAwal,
     potongBerjalanHari: 0, potongTahunLaluHari: 0, potongDuaTahunLaluHari: 0,
     sudahDipotong: 'Tidak',
   };
 
-  let breakdown = { berjalan:0, tahunLalu:0, duaTahunLalu:0 };
-  let deducted = false;
-  if(CUTI_DEDUCTING_STATUSES.includes(statusAwal)){
-    breakdown = deductSisaCuti(nip, jumlahHari, checks); // memotong di salinan lokal state.sisaCutiList
-    deducted = true;
-    detail.potongBerjalanHari = breakdown.berjalan;
-    detail.potongTahunLaluHari = breakdown.tahunLalu;
-    detail.potongDuaTahunLaluHari = breakdown.duaTahunLalu;
-    detail.sudahDipotong = 'Ya';
-  }
+  // Peringatan bila Cuti Tahunan ini melebihi sisa cuti hasil perhitungan otomatis
+  const overWarn = cutiOverLimitWarnings(nip, detail);
+  if(overWarn.length && !confirm('Cuti ini melebihi sisa cuti yang tersedia:\n\n' + overWarn.join('\n') + '\n\nTetap simpan?')) return;
+  applyCutiBreakdown(detail, nip); // isi rincian potongan (informasi) dari perhitungan otomatis
 
   const record = {
     id: genId(), kategoriKey:'cuti', kategoriLabel:'Izin Cuti', sheet:'Izin Cuti',
@@ -2340,16 +2507,13 @@ async function saveCutiRecord(){
   const okRecord = await pushRecordToSheets(record);
   if(!okRecord){
     btn.disabled = false;
-    if(deducted) restoreSisaCuti(nip, breakdown); // batalkan potongan lokal karena gagal simpan
     showBanner('formBanner_cuti','warn','Gagal menyimpan ke Google Sheets. Periksa koneksi internet Anda, lalu coba lagi. Data belum tersimpan.');
     return;
   }
-  if(deducted) await pushSisaCutiToSheets();
-  await Promise.all([fetchAllRecordsFromSheets(), fetchSisaCutiFromSheets()]);
+  await fetchAllRecordsFromSheets();
   btn.disabled = false;
   showBanner('formBanner_cuti','ok', `Permohonan cuti untuk ${nama} berhasil disimpan (status: ${statusAwal}).`);
   resetCutiForm();
-  renderSisaCutiTable();
 }
 
 /* ---------- CUTI BERJALAN ---------- */
@@ -2370,62 +2534,23 @@ function renderCutiBerjalan(){
     sel.addEventListener('change', async ()=>{
       const rec = state.records.find(r=> r.id === sel.dataset.statusId);
       if(!rec) return;
-      const prevStatus = rec.detail.statusCuti;
-      const prevBreakdown = {
-        potongBerjalanHari: rec.detail.potongBerjalanHari || 0,
-        potongTahunLaluHari: rec.detail.potongTahunLaluHari || 0,
-        potongDuaTahunLaluHari: rec.detail.potongDuaTahunLaluHari || 0,
-        sudahDipotong: rec.detail.sudahDipotong || 'Tidak',
-      };
-      const newStatus = sel.value;
+      const keys = ['statusCuti','potongBerjalanHari','potongTahunLaluHari','potongDuaTahunLaluHari','sudahDipotong','tahunBerjalan','tahunLalu','duaTahunLalu'];
+      const prev = Object.fromEntries(keys.map(k=> [k, rec.detail[k]]));
       sel.disabled = true;
-      const wasDeducting = CUTI_DEDUCTING_STATUSES.includes(prevStatus);
-      const willDeduct = CUTI_DEDUCTING_STATUSES.includes(newStatus);
-      let appliedAmount = null; // jumlah yang baru saja dipotong (untuk dibatalkan bila gagal)
-      let restoredAmount = null; // jumlah yang baru saja dikembalikan (untuk dipotong ulang bila gagal)
-
-      if(!wasDeducting && willDeduct && rec.detail.sudahDipotong !== 'Ya'){
-        const checks = { berjalan: rec.detail.tahunBerjalan==='Ya', tahunLalu: rec.detail.tahunLalu==='Ya', duaTahunLalu: rec.detail.duaTahunLalu==='Ya' };
-        const bd = deductSisaCuti(rec.nip, parseFloat(rec.detail.jumlahHari)||0, checks);
-        rec.detail.potongBerjalanHari = bd.berjalan;
-        rec.detail.potongTahunLaluHari = bd.tahunLalu;
-        rec.detail.potongDuaTahunLaluHari = bd.duaTahunLalu;
-        rec.detail.sudahDipotong = 'Ya';
-        appliedAmount = bd;
-      } else if(wasDeducting && !willDeduct && rec.detail.sudahDipotong === 'Ya'){
-        restoredAmount = {
-          berjalan: Number(rec.detail.potongBerjalanHari)||0,
-          tahunLalu: Number(rec.detail.potongTahunLaluHari)||0,
-          duaTahunLalu: Number(rec.detail.potongDuaTahunLaluHari)||0,
-        };
-        restoreSisaCuti(rec.nip, restoredAmount);
-        rec.detail.potongBerjalanHari = 0;
-        rec.detail.potongTahunLaluHari = 0;
-        rec.detail.potongDuaTahunLaluHari = 0;
-        rec.detail.sudahDipotong = 'Tidak';
-      }
-      rec.detail.statusCuti = newStatus;
+      rec.detail.statusCuti = sel.value;
+      applyCutiBreakdown(rec.detail, rec.nip); // saldo dihitung otomatis dari semua cuti; ini hanya mengisi rincian informasi
 
       const ok = await pushRecordToSheets(rec);
       if(!ok){
-        // gagal simpan -> kembalikan semua perubahan lokal seperti semula
-        if(appliedAmount) restoreSisaCuti(rec.nip, appliedAmount);
-        if(restoredAmount) deductSisaCuti(rec.nip, restoredAmount.berjalan + restoredAmount.tahunLalu + restoredAmount.duaTahunLalu, { berjalan: restoredAmount.berjalan>0, tahunLalu: restoredAmount.tahunLalu>0, duaTahunLalu: restoredAmount.duaTahunLalu>0 });
-        rec.detail.statusCuti = prevStatus;
-        rec.detail.potongBerjalanHari = prevBreakdown.potongBerjalanHari;
-        rec.detail.potongTahunLaluHari = prevBreakdown.potongTahunLaluHari;
-        rec.detail.potongDuaTahunLaluHari = prevBreakdown.potongDuaTahunLaluHari;
-        rec.detail.sudahDipotong = prevBreakdown.sudahDipotong;
-        sel.value = prevStatus;
+        keys.forEach(k=>{ if(prev[k] === undefined) delete rec.detail[k]; else rec.detail[k] = prev[k]; });
+        sel.value = prev.statusCuti;
         sel.disabled = false;
         alert('Gagal menyimpan perubahan status ke Google Sheets. Periksa koneksi internet Anda.');
         return;
       }
-      if(appliedAmount || restoredAmount) await pushSisaCutiToSheets();
-      await Promise.all([fetchAllRecordsFromSheets(), fetchSisaCutiFromSheets()]);
+      await fetchAllRecordsFromSheets();
       sel.disabled = false;
       renderCutiBerjalan();
-      renderSisaCutiTable();
     });
   });
 }
@@ -2531,7 +2656,8 @@ function renderRekapBidang(){
 }
 
 function renderRekapPerorangan(emp){
-  showBanner('peroranganInfo_cuti', findSisaCuti(emp.nip)?'info':'warn', `${emp.nama} (${emp.nip||'-'}) — Sisa Cuti: ${sisaCutiText(emp.nip)}`);
+  renderCutiHitung(emp);
+  showBanner('peroranganInfo_cuti', 'info', `${dkEsc(emp.nama)} (${dkEsc(emp.nip||'-')})`);
   const list = allCutiRecords().filter(r=> r.nip === emp.nip);
   const table = document.getElementById('rekapPeroranganTable');
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Belum ada riwayat cuti untuk pegawai ini.</td></tr>'; return; }
@@ -2628,40 +2754,6 @@ function renderBidangTable(){
     });
   });
 }
-function renderSisaCutiTable(){
-  const table = document.getElementById('sisaCutiTable');
-  if(!table) return;
-  if(!state.sisaCutiList.length){ table.innerHTML = '<tr><td class="empty-state">Belum ada data. Klik "Sinkronkan dari Data Pegawai" terlebih dahulu.</td></tr>'; return; }
-  table.innerHTML = '<tr><th>NIP</th><th>Nama</th><th>Tahun Berjalan</th><th>1 Tahun Sebelumnya</th><th>2 Tahun Sebelumnya</th><th>Aksi</th></tr>' +
-    state.sisaCutiList.map((s,i)=>`<tr data-row="${i}">
-      <td>${s.nip}</td><td>${s.nama}</td>
-      <td>${s.berjalan}</td><td>${s.tahunLalu}</td><td>${s.duaTahunLalu}</td>
-      <td><button class="btn secondary" data-edit-idx="${i}" style="padding:4px 8px;font-size:12px;">Edit</button></td>
-    </tr>`).join('');
-  table.querySelectorAll('[data-edit-idx]').forEach(btn=>{
-    btn.addEventListener('click', ()=> editSisaCutiRow(parseInt(btn.dataset.editIdx,10)));
-  });
-}
-function editSisaCutiRow(idx){
-  const s = state.sisaCutiList[idx];
-  const row = document.querySelector(`#sisaCutiTable tr[data-row="${idx}"]`);
-  row.innerHTML = `
-    <td>${s.nip}</td><td>${s.nama}</td>
-    <td><input type="number" id="edit_berjalan_${idx}" value="${s.berjalan}" style="width:70px;"></td>
-    <td><input type="number" id="edit_tahunLalu_${idx}" value="${s.tahunLalu}" style="width:70px;"></td>
-    <td><input type="number" id="edit_duaTahunLalu_${idx}" value="${s.duaTahunLalu}" style="width:70px;"></td>
-    <td><button class="btn accent" data-save-idx="${idx}" style="padding:4px 8px;font-size:12px;">Simpan</button></td>
-  `;
-  row.querySelector(`[data-save-idx="${idx}"]`).addEventListener('click', async (ev)=>{
-    ev.target.disabled = true;
-    s.berjalan = parseFloat(document.getElementById(`edit_berjalan_${idx}`).value) || 0;
-    s.tahunLalu = parseFloat(document.getElementById(`edit_tahunLalu_${idx}`).value) || 0;
-    s.duaTahunLalu = parseFloat(document.getElementById(`edit_duaTahunLalu_${idx}`).value) || 0;
-    Store.set('sisaCutiList', state.sisaCutiList);
-    await pushSisaCutiToSheets();
-    renderSisaCutiTable();
-  });
-}
 
 function handleBidangExcel(file){
   const reader = new FileReader();
@@ -2708,22 +2800,6 @@ async function pushBidangToSheets(afterUpload){
     showBanner('bidangBanner','warn','Gagal terhubung ke Web App. Detail: ' + err.message);
   }
 }
-async function pushSisaCutiToSheets(){
-  const url = state.settings.webAppUrl;
-  if(!url){ showBanner('sisaCutiBanner','warn','Atur URL Web App di tab Pengaturan (global) terlebih dahulu.'); return; }
-  showBanner('sisaCutiBanner','info','Menyimpan data Sisa Cuti ke Google Sheets...');
-  try{
-    const res = await fetch(url, {
-      method:'POST', headers:{ 'Content-Type':'text/plain;charset=utf-8' },
-      body: JSON.stringify({ type:'sisaCuti', items: state.sisaCutiList })
-    });
-    const json = await res.json();
-    if(json.error){ showBanner('sisaCutiBanner','warn','Gagal: ' + json.error); return; }
-    showBanner('sisaCutiBanner','ok', `Data Sisa Cuti (${state.sisaCutiList.length} pegawai) tersimpan ke Google Sheets.`);
-  }catch(err){
-    showBanner('sisaCutiBanner','warn','Gagal terhubung ke Web App. Detail: ' + err.message);
-  }
-}
 
 function wireCutiPengaturan(){
   document.getElementById('btnSyncBidangFromEmployees').addEventListener('click', ()=>{
@@ -2737,13 +2813,6 @@ function wireCutiPengaturan(){
   });
   document.getElementById('btnPushBidang').addEventListener('click', ()=> pushBidangToSheets(false));
 
-  document.getElementById('btnSyncSisaCutiFromEmployees').addEventListener('click', ()=>{
-    if(!state.employees.length){ showBanner('sisaCutiBanner','warn','Muat data pegawai terlebih dahulu di tab Sumber Data Pegawai.'); return; }
-    const added = mergeEmployeesIntoSisaCuti();
-    renderSisaCutiTable();
-    showBanner('sisaCutiBanner','ok', `Sinkronisasi selesai: ${added} pegawai baru ditambahkan (data lama tetap dipertahankan).`);
-  });
-  document.getElementById('btnPushSisaCuti').addEventListener('click', pushSisaCutiToSheets);
 }
 
 /** Perbarui label tombol dropdown Filter Status (Rekap Bidang) sesuai jumlah/isi yang dicentang. */
@@ -2821,7 +2890,7 @@ function wireCutiPanel(){
   }, (key)=>{
     if(key==='berjalan') renderCutiBerjalan();
     if(key==='rekap') renderRekapCutiAll();
-    if(key==='pengaturan'){ renderBidangTable(); renderSisaCutiTable(); }
+    if(key==='pengaturan'){ renderBidangTable(); }
   });
   wireSimpleSubtabs('rekapCutiTabs', {
     status:'rekapCutiSub-status', bidang:'rekapCutiSub-bidang', perorangan:'rekapCutiSub-perorangan',
@@ -2830,11 +2899,12 @@ function wireCutiPanel(){
     if(key==='bidang') renderRekapBidang();
   });
   wireSimpleSubtabs('pengCutiTabs', {
-    bidang:'pengCutiSub-bidang', sisacuti:'pengCutiSub-sisacuti',
+    bidang:'pengCutiSub-bidang', tanggalmerah:'pengCutiSub-tanggalmerah',
   }, (key)=>{
     if(key==='bidang') renderBidangTable();
-    if(key==='sisacuti') renderSisaCutiTable();
+    if(key==='tanggalmerah') document.getElementById('cutiHolidayText').value = state.cutiHolidays;
   });
+  wireCutiHitung();
   document.getElementById('filterStatusCuti').addEventListener('change', renderRekapStatus);
   document.getElementById('filterBidangCuti').addEventListener('change', renderRekapBidang);
   wireStatusBidangMultiselect();
@@ -5147,8 +5217,9 @@ async function init(){
     Store.set('settings', state.settings);
   }
   state.bidangList = await Store.get('bidangList', []);
-  state.sisaCutiList = await Store.get('sisaCutiList', []);
   state.rekapPegawaiList = await Store.get('rekapPegawaiList', []);
+  { const hol = await Store.get('cutiHolidays', null); if(hol) state.cutiHolidays = hol; }
+  state.cutiDeferByNip = await Store.get('cutiDefer', {});
   state.kgbData = await Store.get('kgbData', []);
   state.kgbSelesai = await Store.get('kgbSelesai', []);
   refreshAllReportYearOptions();
