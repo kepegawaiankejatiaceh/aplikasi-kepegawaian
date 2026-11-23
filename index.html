@@ -769,7 +769,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbykmPbDWh5r5X6DsoN-GoZmuLBVjBe3AlPgmtbIQ7NIqWt0ny4eUOpchKBiH1SU3vHbQA/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwl9YKIhSfNEvBSWI2Oj9wrPA2ZzNacLDm9N_YOmwhzy3ipIBa2u5bMH5sO_J2GEtcO9Q/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -824,7 +824,9 @@ let state = {
   cutiSelected: null,  // pegawai terpilih pada form Permohonan Cuti
   usulModuleSelected: {}, // pegawai terpilih per modul { usulpangkat, pencantumangelar }
   usulModuleBerkasRows: {}, // baris dropdown Kekurangan Berkas per modul { usulpangkat:[''], pencantumangelar:[''] }
-  cutiHolidays: cutiDefaultHolidays(), // tanggal merah / cuti bersama (YYYY-MM-DD per baris), disimpan lokal
+  cutiHolidays: cutiDefaultHolidays(), // tanggal merah / cuti bersama (satu per baris, boleh diikuti keterangan); sumber utama: sheet "Tanggal Merah"
+  cutiHolidaysShared: false, // true bila daftar sudah berasal dari Google Sheets
+  cutiHolidaysDirty: false,  // true bila ada perubahan yang belum berhasil tersimpan ke Google Sheets
   cutiDeferByNip: {},   // penangguhan cuti per NIP & tahun: {nip:{2025:true}}
   peroranganEmp: null,  // pegawai yang sedang ditampilkan di Rekap Cuti Perorangan
   kgbData: [],          // Data KGB: {nip, nama, tahun:'Ganjil'|'Genap', bulan}
@@ -1277,6 +1279,7 @@ async function refreshFromSheetsAndRender(){
   const [okRecords] = await Promise.all([
     fetchAllRecordsFromSheets(),
     fetchBidangFromSheets(),
+    fetchHolidaysFromSheets(),
     fetchRekapPegawaiFromSheets(),
   ]);
   if(okRecords) await autoMarkCutiSelesai(); // tandai cuti yang sudah lewat tanggal selesainya
@@ -2016,7 +2019,8 @@ function panelCutiHTML(){
         </div>
 
         <div id="pengCutiSub-tanggalmerah" style="display:none;">
-          <p class="hint">Tanggal merah &amp; cuti bersama (format YYYY-MM-DD, satu per baris) dipakai untuk menghitung hari kerja cuti tahunan. Tanggal tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah terisi; tambahkan Idul Fitri, Idul Adha, Nyepi, dll. sesuai SKB tahun terkait. Daftar ini tersimpan di perangkat/browser ini, jadi pastikan sama di setiap komputer pengguna.</p>
+          <p class="hint">Tanggal merah &amp; cuti bersama (satu per baris: <code>YYYY-MM-DD</code>, boleh diikuti keterangan, mis. <code>2026-03-20 Idul Fitri</code>) dipakai untuk menghitung hari kerja cuti tahunan. Daftar ini disimpan di Google Sheets (tab "Tanggal Merah"), jadi sama di semua perangkat. Tanggal tetap (1 Jan, 1 Mei, 1 Jun, 17 Agu, 25 Des) sudah terisi; tambahkan Idul Fitri, Idul Adha, Nyepi, dll. sesuai SKB tahun terkait.</p>
+          <div class="report-meta" id="cutiHolidayStatus"></div>
           <div class="field-grid"><div class="field full"><label>Daftar Tanggal Merah</label><textarea id="cutiHolidayText" style="height:200px;"></textarea></div></div>
           <div class="btn-row">
             <button class="btn accent" id="btnSaveCutiHoliday">Simpan</button>
@@ -2352,6 +2356,60 @@ function renderCutiPreview(){
   }
   box.innerHTML = html;
 }
+/** Teks daftar tanggal merah -> [{tanggal, keterangan}] (unik, terurut). Baris dengan banyak tanggal dipecah. */
+function cutiHolidayParse(text){
+  const items = [], seen = new Set();
+  String(text||'').split('\n').forEach(line=>{
+    const dates = line.match(/\d{4}-\d{2}-\d{2}/g) || [];
+    dates.forEach(t=>{
+      if(seen.has(t)) return;
+      seen.add(t);
+      const ket = dates.length === 1 ? line.replace(t,'').replace(/^[\s,;:\-–]+/,'').trim() : '';
+      items.push({ tanggal:t, keterangan:ket });
+    });
+  });
+  return items.sort((a,b)=> a.tanggal < b.tanggal ? -1 : (a.tanggal > b.tanggal ? 1 : 0));
+}
+function cutiHolidayToText(items){
+  return items.map(i=> i.keterangan ? `${i.tanggal} ${i.keterangan}` : i.tanggal).join('\n');
+}
+function cutiHolidayStatusRefresh(){
+  const el = document.getElementById('cutiHolidayStatus');
+  if(!el) return;
+  if(state.cutiHolidaysDirty) el.textContent = 'Ada perubahan yang BELUM tersimpan ke Google Sheets (hanya di perangkat ini).';
+  else if(state.cutiHolidaysShared) el.textContent = 'Sumber: Google Sheets (tab "Tanggal Merah") — sama di semua perangkat.';
+  else el.textContent = 'Sheet "Tanggal Merah" belum berisi data: memakai daftar bawaan di perangkat ini. Klik Simpan untuk membagikannya ke semua perangkat.';
+}
+function cutiHolidayUiRefresh(){
+  const ta = document.getElementById('cutiHolidayText');
+  if(ta && document.activeElement !== ta) ta.value = state.cutiHolidays; // jangan mengganggu saat sedang mengetik
+  cutiHolidayStatusRefresh();
+  if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp);
+  renderCutiPreview();
+}
+/** Mengambil daftar tanggal merah dari Google Sheets (ikut polling agar semua perangkat sama). */
+async function fetchHolidaysFromSheets(){
+  const url = state.settings.webAppUrl;
+  if(!url) return false;
+  try{
+    const res = await fetch(`${url}?action=getHolidays`);
+    const json = await res.json();
+    if(json.error || !Array.isArray(json.items)) return false;
+    if(state.cutiHolidaysDirty) return true; // jangan menimpa perubahan lokal yang belum tersimpan
+    if(json.items.length){
+      const text = cutiHolidayToText(json.items);
+      const changed = text !== state.cutiHolidays || !state.cutiHolidaysShared;
+      state.cutiHolidays = text;
+      state.cutiHolidaysShared = true;
+      Store.set('cutiHolidays', text);
+      if(changed) cutiHolidayUiRefresh();
+    } else if(state.cutiHolidaysShared){
+      state.cutiHolidaysShared = false; cutiHolidayStatusRefresh();
+    }
+    return true;
+  }catch(err){ return false; }
+}
+
 function wireCutiHitung(){
   const nEl = document.getElementById('cutiHitungN');
   nEl.value = new Date().getFullYear();
@@ -2378,12 +2436,29 @@ function wireCutiHitung(){
     kgbExportAoa(['No','Tahun','Tanggal cuti tahunan','Dipotong dari','Keterangan'], out, `Tabel_Cuti_Tahunan_${(emp.nama||'pegawai').replace(/\s+/g,'_')}_${todayStamp()}.xlsx`, 'Cuti per Tahun');
   });
   const ta = document.getElementById('cutiHolidayText');
-  document.getElementById('btnSaveCutiHoliday').addEventListener('click', ()=>{
-    state.cutiHolidays = ta.value;
+  document.getElementById('btnSaveCutiHoliday').addEventListener('click', async ()=>{
+    const items = cutiHolidayParse(ta.value);
+    if(!items.length && !confirm('Daftar tanggal merah kosong. Hapus semua tanggal merah dari Google Sheets?')) return;
+    state.cutiHolidays = cutiHolidayToText(items);
+    state.cutiHolidaysDirty = true;
     Store.set('cutiHolidays', state.cutiHolidays);
-    showBanner('cutiHolidayBanner','ok','Tanggal merah disimpan di perangkat ini.');
+    ta.value = state.cutiHolidays;
     if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp);
     cutiAutoJumlahHari(); renderCutiPreview();
+    if(!state.settings.webAppUrl){
+      showBanner('cutiHolidayBanner','warn','Tersimpan hanya di perangkat ini karena URL Web App belum diatur.');
+      cutiHolidayStatusRefresh(); return;
+    }
+    showBanner('cutiHolidayBanner','info','Menyimpan ke Google Sheets...');
+    const res = await apiPost({ type:'holidays', items, allowEmpty: !items.length });
+    if(!res || res.error || typeof res.count !== 'number'){
+      const why = (res && res.error) ? res.error : 'Web App di Google Apps Script belum diperbarui (tempel code.gs terbaru lalu deploy versi baru).';
+      showBanner('cutiHolidayBanner','warn','Belum tersimpan ke Google Sheets: ' + dkEsc(why) + ' Perubahan masih tersimpan di perangkat ini.');
+      cutiHolidayStatusRefresh(); return;
+    }
+    state.cutiHolidaysDirty = false; state.cutiHolidaysShared = true;
+    showBanner('cutiHolidayBanner','ok',`Tersimpan di Google Sheets (${res.count} tanggal). Perangkat lain menerimanya otomatis dalam beberapa detik.`);
+    cutiHolidayStatusRefresh();
   });
   document.getElementById('btnResetCutiHoliday').addEventListener('click', ()=>{ ta.value = cutiDefaultHolidays(); });
 }
@@ -2902,7 +2977,7 @@ function wireCutiPanel(){
     bidang:'pengCutiSub-bidang', tanggalmerah:'pengCutiSub-tanggalmerah',
   }, (key)=>{
     if(key==='bidang') renderBidangTable();
-    if(key==='tanggalmerah') document.getElementById('cutiHolidayText').value = state.cutiHolidays;
+    if(key==='tanggalmerah'){ document.getElementById('cutiHolidayText').value = state.cutiHolidays; cutiHolidayStatusRefresh(); }
   });
   wireCutiHitung();
   document.getElementById('filterStatusCuti').addEventListener('change', renderRekapStatus);
@@ -3418,6 +3493,7 @@ async function loadKgbFromSheets(){
     if(json.error) return false;
     state.kgbData = json.dataKgb || [];
     state.kgbSelesai = json.selesai || [];
+    state.kgbDebug = json.debug || null; // info sheet/kolom yang dibaca backend (null = skrip lama)
     Store.set('kgbData', state.kgbData);
     Store.set('kgbSelesai', state.kgbSelesai);
     return true;
@@ -3749,11 +3825,43 @@ function kgbRenderActive(){
   else if(key === 'rekap') renderRekapUsulModule('kgb', true);
 }
 
+function kgbColLetter(i){
+  let t = '', n = i + 1;
+  while(n > 0){ const m = (n-1) % 26; t = String.fromCharCode(65+m) + t; n = Math.floor((n-1) / 26); }
+  return t;
+}
+/** Penjelasan singkat apa yang ditemukan backend saat membaca sheet Data KGB / KGB Selesai. */
+function kgbDiagText(kind){
+  const diag = (state.kgbDebug || {})[kind] || [];
+  const label = kind === 'data' ? 'Data KGB' : 'KGB Selesai';
+  const where = w=> w === 'target' ? 'spreadsheet input' : 'spreadsheet sumber';
+  const sheets = diag.filter(d=> d.sheet);
+  if(!sheets.length){
+    const err = diag.some(d=> d.error);
+    return `Sheet "${label}" tidak ditemukan di spreadsheet input maupun sumber${err ? ' (ada spreadsheet yang tidak bisa dibuka — periksa izin akses skrip)' : ''}. Pastikan nama tab-nya "${label}".`;
+  }
+  const s0 = sheets[0], used = diag.find(d=> d.used), note = diag.find(d=> d.note);
+  const head = `Backend menemukan sheet "${s0.sheet}" di ${where(s0.spreadsheet)} (${s0.rows} baris)`;
+  if(note) return `${head}, tetapi baris header dengan kolom NIP tidak ditemukan (10 baris pertama). Header yang terbaca: ${(note.headers||[]).join(', ') || '(kosong)'}.`;
+  const cols = used ? `, header di baris ${used.headerRow}, kolom: ${Object.entries(used.columns).map(([k,v])=> k+'='+kgbColLetter(v)).join(', ')}` : '';
+  return `${head}${cols}, tetapi tidak ada baris dengan NIP valid (minimal 10 angka). Pastikan kolom NIP terisi.`;
+}
+
 async function kgbOnOpen(){
   kgbRenderActive(); // tampilkan cache lokal dulu
   if(!state.settings.webAppUrl) return;
-  if(await loadKgbFromSheets()){ kgbRenderActive(); return; }
-  showBanner('kgbDataBanner','warn','Data KGB belum bisa dimuat dari Google Sheets. Pastikan koneksi internet aktif dan code.gs terbaru sudah di-deploy sebagai versi baru. Menampilkan data tersimpan lokal.');
+  if(!(await loadKgbFromSheets())){
+    showBanner('kgbDataBanner','warn','Data KGB belum bisa dimuat dari Google Sheets. Pastikan koneksi internet aktif dan code.gs terbaru sudah di-deploy sebagai versi baru. Menampilkan data tersimpan lokal.');
+    return;
+  }
+  kgbRenderActive();
+  if(!state.kgbDebug){
+    showBanner('kgbDataBanner','warn','Web App di Google Apps Script masih versi lama. Tempel code.gs terbaru, lalu Deploy > Manage deployments > ikon pensil > Version: New version > Deploy.');
+    return;
+  }
+  if(!state.kgbData.length) showBanner('kgbDataBanner','warn','Data KGB kosong. ' + dkEsc(kgbDiagText('data')));
+  else document.getElementById('kgbDataBanner').innerHTML = '';
+  if(!state.kgbSelesai.length && state.kgbDebug.selesai.some(d=> d.sheet)) showBanner('kgbSelesaiBanner','info','KGB Selesai kosong. ' + dkEsc(kgbDiagText('selesai')));
 }
 
 function wireKgbPanel(){
