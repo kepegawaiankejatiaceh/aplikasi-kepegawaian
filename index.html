@@ -3484,6 +3484,43 @@ async function kgbPostChunks(type, items, size=250){
   return { added, updated, skipped };
 }
 
+/** Normalisasi nama untuk pencocokan: abaikan kapital, spasi, titik, koma, dan tanda baca. */
+function kgbNamaKey(v){
+  return String(v==null ? '' : v).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9]/g,'');
+}
+
+/**
+ * Gabungkan data pegawai dari MySimkari (NIP/Nama) dengan jadwal KGB dari spreadsheet tujuan.
+ * Pasangan TAHUN/BULAN hanya dipakai jika NIP dan Nama sama-sama cocok setelah normalisasi.
+ */
+function kgbGabungkanPegawaiDenganJadwal(kgbRows){
+  const byKey = new Map(), byNip = new Map();
+  (Array.isArray(kgbRows) ? kgbRows : []).forEach(d=>{
+    const nip = kgbNip(d?.nip), nama = kgbNamaKey(d?.nama);
+    if(!nip || !nama) return;
+    const key = nip + '|' + nama;
+    if(!byKey.has(key)) byKey.set(key, d);
+    if(!byNip.has(nip)) byNip.set(nip, d);
+  });
+
+  const employees = Array.isArray(state.employees) ? state.employees : [];
+  let matched = 0, nameMismatch = 0;
+  const items = employees.filter(e=> e && e.nama && kgbNip(e.nip).length >= 10).map(e=>{
+    const nip = kgbNip(e.nip), namaKey = kgbNamaKey(e.nama);
+    const d = byKey.get(nip + '|' + namaKey) || null;
+    if(d) matched++;
+    else if(byNip.has(nip)) nameMismatch++;
+    return {
+      nip: String(e.nip==null ? '' : e.nip).trim(),
+      nama: String(e.nama==null ? '' : e.nama).trim(),
+      tahun: d ? String(d.tahun||'').trim() : '',
+      bulan: d ? String(d.bulan||'').trim() : ''
+    };
+  });
+  const noNip = employees.filter(e=> e && e.nama && kgbNip(e.nip).length < 10).length;
+  return { items, stats:{ sourceEmployees:items.length, scheduleRows:(Array.isArray(kgbRows)?kgbRows.length:0), matched, nameMismatch, noNip } };
+}
+
 async function loadKgbFromSheets(){
   const url = state.settings.webAppUrl;
   const time = new Date().toLocaleTimeString('id-ID');
@@ -3493,9 +3530,18 @@ async function loadKgbFromSheets(){
     if(res.ok === false){ state.kgbLoadInfo = { ok:false, time, error:'HTTP ' + res.status }; return false; }
     const json = await res.json();
     if(json.error){ state.kgbLoadInfo = { ok:false, time, error:String(json.error) }; return false; }
-    state.kgbData = json.dataKgb || [];
+
+    // NIP dan Nama berasal dari daftar pegawai MySimkari yang telah dimuat ke state.employees.
+    // TAHUN dan BULAN berasal dari tab Data KGB pada Spreadsheet Tujuan Simpan.
+    const merged = kgbGabungkanPegawaiDenganJadwal(json.dataKgb || []);
+    state.kgbData = merged.items;
     state.kgbSelesai = json.selesai || [];
-    state.kgbDebug = json.debug || null; // info sheet/kolom yang dibaca backend (null = skrip lama)
+    state.kgbDebug = json.debug || null;
+    if(state.kgbDebug){
+      state.kgbDebug.dataJoin = merged.stats;
+      state.kgbDebug.employeeSource = 'MySimkari';
+      state.kgbDebug.scheduleSource = 'Spreadsheet Tujuan Simpan';
+    }
     Store.set('kgbData', state.kgbData);
     Store.set('kgbSelesai', state.kgbSelesai);
     state.kgbLoadInfo = { ok:true, time, error:'' };
@@ -3845,14 +3891,15 @@ function renderKgbLoadInfo(){
   const el = document.getElementById('kgbLoadInfo');
   if(!el) return;
   const li = state.kgbLoadInfo, url = state.settings.webAppUrl || '', st = kgbMatchStats();
+  const join = state.kgbDebug?.dataJoin;
   const parts = [
     'Web App: ' + (url ? '…' + url.slice(-12) : '(belum diatur)'),
     li ? (li.ok ? 'dimuat ' + li.time : 'GAGAL dimuat ' + li.time + ': ' + li.error) : 'belum dimuat',
-    `Data KGB: ${state.kgbData.length} • KGB Selesai: ${state.kgbSelesai.length}`,
-    `Data Pegawai: ${st.nEmp} (Kejati ${st.kejati}) • cocok dengan Data KGB: ${st.matched}`,
+    `Daftar pegawai Data KGB: ${state.kgbData.length} • KGB Selesai: ${state.kgbSelesai.length}`,
+    `Data MySimkari: ${st.nEmp} pegawai (Kejati ${st.kejati})`,
   ];
-  if(state.kgbData.length && st.nEmp && st.matched === 0) parts.push('PERINGATAN: tidak ada NIP yang cocok — NIP di sheet kemungkinan tersimpan sebagai angka (digit akhir berubah) atau formatnya berbeda.');
-  if(!st.nEmp) parts.push('Data Pegawai belum termuat (tab Sumber Data Pegawai).');
+  if(join) parts.push(`Jadwal KGB cocok: ${join.matched} • NIP cocok tetapi Nama berbeda: ${join.nameMismatch}`);
+  if(!st.nEmp) parts.push('Data Pegawai MySimkari belum termuat (tab Sumber Data Pegawai).');
   el.textContent = parts.join(' | ');
 }
 function kgbColLetter(i){
@@ -3890,7 +3937,8 @@ async function kgbOnOpen(){
     showBanner('kgbDataBanner','warn','Web App di Google Apps Script masih versi lama. Tempel code.gs terbaru, lalu Deploy > Manage deployments > ikon pensil > Version: New version > Deploy.');
     return;
   }
-  if(!state.kgbData.length) showBanner('kgbDataBanner','warn','Data KGB kosong. ' + dkEsc(kgbDiagText('data')));
+  if(!state.employees.length) showBanner('kgbDataBanner','warn','Daftar pegawai dari Spreadsheet Data MySimkari belum dimuat. Muat data pegawai terlebih dahulu pada tab Sumber Data Pegawai.');
+  else if(!state.kgbData.length) showBanner('kgbDataBanner','warn','Tidak ada data pegawai MySimkari dengan NIP valid untuk ditampilkan. ' + dkEsc(kgbDiagText('data')));
   else document.getElementById('kgbDataBanner').innerHTML = '';
   if(!state.kgbSelesai.length && state.kgbDebug.selesai.some(d=> d.sheet)) showBanner('kgbSelesaiBanner','info','KGB Selesai kosong. ' + dkEsc(kgbDiagText('selesai')));
 }
