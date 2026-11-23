@@ -3476,8 +3476,9 @@ async function kgbPostChunks(type, items, size=250){
   for(let i = 0; i < items.length; i += size){
     const res = await apiPost({ type, items: items.slice(i, i+size) });
     if(!res || res.error || !res.success) return { error: (res && res.error) || 'Gagal menyimpan ke Google Sheets.', added, updated, skipped };
-    if(typeof res.added !== 'number'){ // skrip lama membalas "sukses" tanpa memproses data
-      return { error: 'Web App di Google Apps Script belum diperbarui. Tempel code.gs terbaru, lalu Deploy > Manage deployments > ikon pensil > Version: New version > Deploy.', added, updated, skipped };
+    if(typeof res.added !== 'number' || res.apiVersion !== 'KGB-MERGE-20261123-01'){
+      const actualVersion = res.apiVersion || 'tidak ada penanda versi';
+      return { error: 'Respons Web App bukan dari backend KGB versi terbaru (versi terbaca: ' + actualVersion + '). Respons lama biasanya hanya mengembalikan success/saved tanpa added. Pastikan URL Web App mengarah ke proyek Apps Script yang benar, tempel seluruh code_KGB_v2.gs, lalu Deploy > Manage deployments > ikon pensil > Version: New version > Deploy.', added, updated, skipped };
     }
     added += res.added||0; updated += res.updated||0; skipped += res.skipped||0;
   }
@@ -3530,6 +3531,10 @@ async function loadKgbFromSheets(){
     if(res.ok === false){ state.kgbLoadInfo = { ok:false, time, error:'HTTP ' + res.status }; return false; }
     const json = await res.json();
     if(json.error){ state.kgbLoadInfo = { ok:false, time, error:String(json.error) }; return false; }
+    if(json.apiVersion !== 'KGB-MERGE-20261123-01'){
+      state.kgbLoadInfo = { ok:false, time, error:'Versi backend KGB tidak sesuai (terbaca: ' + String(json.apiVersion || 'tidak ada penanda versi') + '). Pastikan code_KGB_v2.gs ditempel ke proyek Apps Script yang sama dengan URL Web App, lalu deploy New version.' };
+      return false;
+    }
 
     // NIP dan Nama berasal dari daftar pegawai MySimkari yang telah dimuat ke state.employees.
     // TAHUN dan BULAN berasal dari tab Data KGB pada Spreadsheet Tujuan Simpan.
