@@ -727,7 +727,12 @@ const CATEGORIES = [
     { id:'tglInput', label:'Tanggal Input', type:'date' },
     { id:'periode', label:'Periode (Bulan)', type:'month' },
     { id:'jenisPenghargaan', label:'Masa Kerja', type:'select', options:['10 Tahun','20 Tahun','30 Tahun'] },
-    { id:'nomorSk', label:'Nomor SK', type:'text' },
+    { id:'nomorPengantar', label:'Nomor Pengantar', type:'text' },
+    { id:'kekuranganBerkas', label:'Kekurangan Berkas', type:'text' },
+    { id:'printPengantar', label:'Print Pengantar', type:'text' },
+    { id:'ck', label:'CK', type:'text' },
+    { id:'statusUsul', label:'Status', type:'select', options:['Di Kirim','Di Tolak'] },
+    { id:'catatanPenolakan', label:'Catatan Penolakan', type:'text' },
   ]},
   { key:'usulmutasipromosi', label:'Usul Mutasi/Promosi Pegawai', sheet:'Usul Mutasi Promosi', fields:[
     { id:'tglInput', label:'Tanggal Input', type:'date' },
@@ -755,59 +760,20 @@ const CATEGORIES = [
 ];
 
 /* =========================================================
-   PENYIMPANAN
-   Urutan prioritas:
-   1) window.storage  -> tersedia saat aplikasi dibuka dari dalam Claude
-   2) localStorage    -> tersedia saat file ini dibuka langsung di browser
-                         (data tersimpan permanen di browser tsb, tidak perlu isi ulang)
-   3) memori sementara -> cadangan terakhir jika keduanya diblokir browser
+   PENGATURAN WEB APP
+   Aplikasi TIDAK memakai penyimpanan browser sama sekali (tanpa localStorage,
+   IndexedDB, cookie, maupun penyimpanan aplikasi). Semua data dibaca dari dan
+   disimpan ke Google Sheets lewat Web App di bawah; di browser hanya ada
+   memori sementara selama halaman terbuka.
    ========================================================= */
 /** URL Web App (Google Apps Script) default yang otomatis dipakai oleh SEMUA
  *  pengguna baru — tidak perlu 2 versi HTML terpisah untuk admin/operator.
  *  Cukup satu file HTML ini untuk semua orang. Admin cukup mengisi URL Web App
  *  TERBARU di sini SEKALI setiap kali membuat *deployment baru* (bukan "New
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
- *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
- *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
+ *  ulang file ini ke GitHub Pages. URL yang diubah di tab Pengaturan hanya
+ *  berlaku sementara (sampai halaman dimuat ulang); nilai tetap ada di sini. */
 const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyYFnhMv1bbfm0-_4bcl0-JQcm84O9AFOPRbnctUN5RWT0eC8ihbdWvR3whmA7gKB--Og/exec';
-
-const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
-const HAS_LOCAL_STORAGE = (() => {
-  try { const k='__test__'; localStorage.setItem(k,'1'); localStorage.removeItem(k); return true; }
-  catch(e){ return false; }
-})();
-const memoryFallback = {};
-const STORE_PREFIX = 'kepegawaian_';
-
-const Store = {
-  async get(key, fallback){
-    if(HAS_APP_STORAGE){
-      try{
-        const r = await window.storage.get(key);
-        if(r) return JSON.parse(r.value);
-      }catch(e){ /* lanjut ke fallback di bawah */ }
-    }
-    if(HAS_LOCAL_STORAGE){
-      try{
-        const raw = localStorage.getItem(STORE_PREFIX + key);
-        if(raw != null) return JSON.parse(raw);
-      }catch(e){ /* lanjut ke memori */ }
-    }
-    return (key in memoryFallback) ? memoryFallback[key] : fallback;
-  },
-  async set(key, value){
-    memoryFallback[key] = value; // selalu simpan juga di memori untuk sesi berjalan
-    if(HAS_APP_STORAGE){
-      try{ await window.storage.set(key, JSON.stringify(value)); }
-      catch(e){ console.error('Gagal menyimpan ke window.storage', key, e); }
-    }
-    if(HAS_LOCAL_STORAGE){
-      try{ localStorage.setItem(STORE_PREFIX + key, JSON.stringify(value)); }
-      catch(e){ console.error('Gagal menyimpan ke localStorage', key, e); }
-    }
-  }
-};
-const HAS_STORAGE = HAS_APP_STORAGE || HAS_LOCAL_STORAGE;
 
 /* =========================================================
    STATE
@@ -1061,7 +1027,6 @@ function confirmMapping(){
     }))
     .filter(e=> e.nama);
   state.employees = employees;
-  Store.set('employees', employees);
   document.getElementById('mappingCard').style.display = 'none';
   state.rawImport = null;
   renderEmployeeSummary();
@@ -1128,7 +1093,6 @@ async function fetchAllRecordsFromSheets(){
     const json = await res.json();
     if(json.error) return false;
     state.records = json.records || [];
-    Store.set('records', state.records);
     populateSuggestionDatalists();
     populateManualSuggestionDatalists();
     return true;
@@ -1173,7 +1137,6 @@ async function fetchBidangFromSheets(){
       return { ...it, bidang: clean };
     });
     state.bidangList = normalized;
-    Store.set('bidangList', state.bidangList);
     if(changed) pushBidangToSheets(true); // rapikan otomatis penulisan Bidang yang belum baku di spreadsheet
     return true;
   }catch(err){ return false; }
@@ -1186,7 +1149,6 @@ async function fetchRekapPegawaiFromSheets(){
     const json = await res.json();
     if(json.error) return false;
     state.rekapPegawaiList = json.items || [];
-    Store.set('rekapPegawaiList', state.rekapPegawaiList);
     return true;
   }catch(err){ return false; }
 }
@@ -1280,6 +1242,7 @@ async function refreshFromSheetsAndRender(){
     fetchAllRecordsFromSheets(),
     fetchBidangFromSheets(),
     fetchHolidaysFromSheets(),
+    fetchDeferFromSheets(),
     fetchRekapPegawaiFromSheets(),
   ]);
   if(okRecords) await autoMarkCutiSelesai(); // tandai cuti yang sudah lewat tanggal selesainya
@@ -1395,7 +1358,6 @@ async function autoLoadEmployeesIfConfigured(){
       }))
       .filter(e=> e.nama);
     state.employees = employees;
-    Store.set('employees', employees);
     renderEmployeeSummary();
     showBanner('sumberBanner','ok', `${employees.length} data pegawai otomatis dimuat dari spreadsheet sumber.`);
   }catch(err){
@@ -1982,7 +1944,7 @@ function panelCutiHTML(){
           <div id="peroranganHitung_cuti" style="display:none;">
             <hr style="border:none;border-top:1px solid var(--line);margin:22px 0;">
             <h3>Perhitungan Cuti Tahunan</h3>
-            <p class="hint">N = cuti tahun berjalan, N-1 = sisa 1 tahun sebelumnya, N-2 = sisa 2 tahun sebelumnya. Hari kerja = Senin-Jumat di luar tanggal merah (atur di Pengaturan &rarr; Tanggal Merah). Perhitungan dimulai sejak tahun 2024; cuti sebelum 2024 diabaikan. Hanya Cuti Tahunan berstatus Disetujui/Berjalan/Selesai yang dihitung.</p>
+            <p class="hint">N = cuti tahun berjalan, N-1 = sisa 1 tahun sebelumnya, N-2 = sisa 2 tahun sebelumnya. Hari kerja = Senin-Jumat di luar tanggal merah (atur di Pengaturan &rarr; Tanggal Merah). Perhitungan dimulai sejak tahun 2024; cuti sebelum 2024 diabaikan. Hanya Cuti Tahunan berstatus Disetujui/Berjalan/Selesai yang dihitung. Penangguhan tersimpan di Google Sheets (tab "Penangguhan Cuti").</p>
             <div class="field-grid">
               <div class="field"><label>Tahun Berjalan (N)</label><input type="number" id="cutiHitungN" min="2024"></div>
             </div>
@@ -2046,7 +2008,6 @@ function mergeEmployeesIntoBidang(){
     if(existing){ existing.nama = e.nama || existing.nama; }
     else { state.bidangList.push({ nip:e.nip, nama:e.nama, bidang:'' }); added++; }
   });
-  Store.set('bidangList', state.bidangList);
   return added;
 }
 function allCutiRecords(){
@@ -2100,7 +2061,6 @@ async function autoMarkCutiSelesai(){
     const ok = await pushRecordToSheets(rec);
     if(!ok) rec.detail.statusCuti = prevStatus; // gagal simpan -> batalkan perubahan lokal, dicoba lagi di polling berikutnya
   }
-  Store.set('records', state.records);
   return true;
 }
 
@@ -2190,6 +2150,25 @@ function cutiWorkDays(s,e,H){
     if(w && w < 6 && !H.has(cutiIso(d))) out.push(cutiIso(d));
   }
   return out;
+}
+/** Mengambil penangguhan cuti (sheet "Penangguhan Cuti") — ikut polling agar sama di semua perangkat. */
+async function fetchDeferFromSheets(){
+  const url = state.settings.webAppUrl;
+  if(!url) return false;
+  try{
+    const res = await fetch(`${url}?action=getDeferCuti`);
+    const json = await res.json();
+    if(json.error || !Array.isArray(json.items)) return false;
+    const map = {};
+    json.items.forEach(it=>{ const k = kgbNip(it.nip); if(k) (map[k] = map[k] || {})[it.tahun] = true; });
+    const changed = JSON.stringify(map) !== JSON.stringify(state.cutiDeferByNip);
+    state.cutiDeferByNip = map;
+    if(changed){
+      if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp);
+      renderCutiPreview();
+    }
+    return true;
+  }catch(err){ return false; }
 }
 function cutiDeferFor(nip){
   const key = kgbNip(nip) || String(nip||'');
@@ -2401,7 +2380,6 @@ async function fetchHolidaysFromSheets(){
       const changed = text !== state.cutiHolidays || !state.cutiHolidaysShared;
       state.cutiHolidays = text;
       state.cutiHolidaysShared = true;
-      Store.set('cutiHolidays', text);
       if(changed) cutiHolidayUiRefresh();
     } else if(state.cutiHolidaysShared){
       state.cutiHolidaysShared = false; cutiHolidayStatusRefresh();
@@ -2414,11 +2392,19 @@ function wireCutiHitung(){
   const nEl = document.getElementById('cutiHitungN');
   nEl.value = new Date().getFullYear();
   nEl.addEventListener('input', ()=>{ if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp); });
-  document.getElementById('cutiHitungDefer').addEventListener('change', (ev)=>{
+  document.getElementById('cutiHitungDefer').addEventListener('change', async (ev)=>{
     const cb = ev.target.closest('input[data-defer-year]');
     if(!cb || !state.peroranganEmp) return;
-    cutiDeferFor(state.peroranganEmp.nip)[cb.dataset.deferYear] = cb.checked;
-    Store.set('cutiDefer', state.cutiDeferByNip);
+    const nip = state.peroranganEmp.nip, year = cb.dataset.deferYear, aktif = cb.checked;
+    cb.disabled = true;
+    const res = await apiPost({ type:'deferCuti', nip: kgbNip(nip), tahun: year, aktif });
+    if(!res || res.error || typeof res.count !== 'number'){
+      cb.checked = !aktif; cb.disabled = false;
+      alert('Penangguhan cuti belum tersimpan ke Google Sheets' + ((res && res.error) ? ': ' + res.error : ' (Web App belum diperbarui atau koneksi bermasalah).'));
+      return;
+    }
+    const d = cutiDeferFor(nip);
+    if(aktif) d[year] = true; else delete d[year];
     renderCutiHitung(state.peroranganEmp);
   });
   document.getElementById('btnExportCutiHitungExcel').addEventListener('click', ()=>{
@@ -2441,7 +2427,6 @@ function wireCutiHitung(){
     if(!items.length && !confirm('Daftar tanggal merah kosong. Hapus semua tanggal merah dari Google Sheets?')) return;
     state.cutiHolidays = cutiHolidayToText(items);
     state.cutiHolidaysDirty = true;
-    Store.set('cutiHolidays', state.cutiHolidays);
     ta.value = state.cutiHolidays;
     if(state.peroranganEmp) renderCutiHitung(state.peroranganEmp);
     cutiAutoJumlahHari(); renderCutiPreview();
@@ -2823,7 +2808,6 @@ function renderBidangTable(){
     sel.addEventListener('change', async ()=>{
       sel.disabled = true;
       state.bidangList[parseInt(sel.dataset.bidangIdx,10)].bidang = sel.value;
-      Store.set('bidangList', state.bidangList);
       await pushBidangToSheets(true);
       sel.disabled = false;
     });
@@ -2851,7 +2835,6 @@ function handleBidangExcel(file){
       if(entry){ entry.bidang = bidang; updated++; }
       else { state.bidangList.push({ nip, nama: namaIdx>=0? String(row[namaIdx]||'').trim() : '', bidang }); added++; }
     });
-    Store.set('bidangList', state.bidangList);
     renderBidangTable();
     showBanner('bidangBanner','ok', `Berhasil memproses file: ${updated} diperbarui, ${added} ditambahkan. Mengirim ke Google Sheets...`);
     pushBidangToSheets(true);
@@ -3023,6 +3006,12 @@ const USUL_MODULES = {
     emptyText: 'Tidak ada usul pencantuman gelar pada periode ini.',
   },
 };
+USUL_MODULES.satyalencana = {
+  label: 'Satya Lencana',
+  berkasOptions: ['ACC','DRH','CPNS','Jabatan Mutasi','Pangkat Gol','Keppres Satya','CK','Persetujuan Kasubbagpeg'],
+  rekapHint: 'Daftar pegawai yang sedang diusulkan Satya Lencananya, dikelompokkan per periode.',
+  emptyText: 'Tidak ada usul Satya Lencana pada periode ini.',
+};
 USUL_MODULES.kgb = {
   label: 'Kenaikan Gaji Berkala',
   berkasOptions: ['Pengajuan CK ke WAS','KGB Terakhir','SK Pangkat','SKP','CK','Print Pengantar Kasubbag','Kirim ke Asbin','Kelengkapan MySimkari'],
@@ -3063,6 +3052,7 @@ function usulInputInnerHTML(catKey){
         <div class="field-grid">
           ${fieldHTML(catKey, cat.fields.find(f=>f.id==='tglInput'))}
           ${fieldHTML(catKey, cat.fields.find(f=>f.id==='periode'))}
+          ${cat.fields.find(f=>f.id==='jenisPenghargaan') ? fieldHTML(catKey, cat.fields.find(f=>f.id==='jenisPenghargaan')) : ''}
           ${fieldHTML(catKey, cat.fields.find(f=>f.id==='nomorPengantar'))}
           <div class="field full">
             <label>Kekurangan Berkas</label>
@@ -3191,6 +3181,7 @@ function resetUsulModuleForm(catKey){
   document.getElementById(`f_${catKey}_tglInput`).value = '';
   document.getElementById(`f_${catKey}_periode`).value = '';
   document.getElementById(`f_${catKey}_nomorPengantar`).value = '';
+  { const mk = document.getElementById(`f_${catKey}_jenisPenghargaan`); if(mk) mk.value = ''; }
   document.getElementById(`catatan_${catKey}`).value = '';
   state.usulModuleSelected[catKey] = null;
   state.usulModuleBerkasRows[catKey] = [''];
@@ -3219,10 +3210,13 @@ async function saveUsulModuleRecord(catKey){
   if(!state.settings.webAppUrl){ showBanner(`formBanner_${catKey}`,'warn','URL Web App belum diatur — buka menu Pengaturan terlebih dahulu.'); return; }
 
   const kekuranganBerkas = state.usulModuleBerkasRows[catKey].filter(Boolean).join(', ');
+  const mkEl = document.getElementById(`f_${catKey}_jenisPenghargaan`); // hanya ada pada Satya Lencana
+  if(mkEl && !mkEl.value){ showBanner(`formBanner_${catKey}`,'warn','Pilih Masa Kerja (10/20/30 Tahun) terlebih dahulu.'); return; }
 
   const detail = {
     tglInput: document.getElementById(`f_${catKey}_tglInput`).value,
     periode: document.getElementById(`f_${catKey}_periode`).value,
+    ...(mkEl ? { jenisPenghargaan: mkEl.value } : {}),
     nomorPengantar: document.getElementById(`f_${catKey}_nomorPengantar`).value,
     kekuranganBerkas,
     printPengantar: 'Tidak',
@@ -3290,7 +3284,7 @@ function renderRekapUsulModule(catKey, rebuildPeriode){
       <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;">
         <div>
           <strong>${r.nama}</strong> <span style="color:var(--ink-soft);">(${r.nip||'-'})</span><br>
-          <span style="color:var(--ink-soft);font-size:12.5px;">Periode: ${formatBulanID(r.detail.periode)} &middot; Nomor Pengantar: ${r.detail.nomorPengantar||'-'} &middot; Tanggal Input: ${formatTanggalID(r.detail.tglInput)}</span>
+          <span style="color:var(--ink-soft);font-size:12.5px;">Periode: ${formatBulanID(r.detail.periode)}${r.detail.jenisPenghargaan ? ' &middot; Masa Kerja: ' + r.detail.jenisPenghargaan : ''} &middot; Nomor Pengantar: ${r.detail.nomorPengantar||'-'} &middot; Tanggal Input: ${formatTanggalID(r.detail.tglInput)}</span>
         </div>
       </div>
       <div style="margin:10px 0;">
@@ -3547,8 +3541,6 @@ async function loadKgbFromSheets(){
       state.kgbDebug.employeeSource = 'MySimkari';
       state.kgbDebug.scheduleSource = 'Spreadsheet Tujuan Simpan';
     }
-    Store.set('kgbData', state.kgbData);
-    Store.set('kgbSelesai', state.kgbSelesai);
     state.kgbLoadInfo = { ok:true, time, error:'' };
     return true;
   }catch(err){
@@ -5329,7 +5321,7 @@ function panelPengaturanHTML(){
         </div>
       </div>
       <div class="btn-row">
-        <button class="btn accent" id="btnSaveSettings">Simpan Pengaturan</button>
+        <button class="btn accent" id="btnSaveSettings">Terapkan Pengaturan</button>
         <button class="btn secondary" id="btnTestConn">Uji Koneksi</button>
       </div>
       <div id="settingsBanner"></div>
@@ -5382,7 +5374,7 @@ function panelPengaturanHTML(){
     <div class="card">
       <h2>Tentang Mode Realtime</h2>
       <p class="hint">Setiap kali Anda menyimpan, mengubah status, atau menghapus data, aplikasi langsung mengirimkannya ke Google Sheets — bukan lagi disimpan lokal lalu dikirim manual. Setiap kali aplikasi dibuka, berpindah tab, atau kembali aktif setelah beberapa saat, data terbaru otomatis ditarik ulang dari Sheets, sehingga semua orang yang mengakses ${'`'}aplikasi-kepegawaian.html${'`'} melihat data yang sama.</p>
-      <p class="hint"><strong>Konsekuensi:</strong> aplikasi membutuhkan koneksi internet setiap saat untuk menyimpan atau membaca data. Jika koneksi terputus saat menyimpan, aplikasi akan memberi tahu dan data tidak akan tersimpan setengah-setengah. URL Web App sendiri tetap tersimpan di penyimpanan browser ini (${HAS_APP_STORAGE? 'penyimpanan aplikasi Claude' : (HAS_LOCAL_STORAGE? 'localStorage browser ini' : 'tidak tersimpan permanen di browser ini')}), jadi tidak perlu diisi ulang setiap membuka aplikasi di perangkat/browser yang sama.</p>
+      <p class="hint"><strong>Konsekuensi:</strong> aplikasi membutuhkan koneksi internet setiap saat untuk menyimpan atau membaca data. Jika koneksi terputus saat menyimpan, aplikasi akan memberi tahu dan data tidak akan tersimpan setengah-setengah. Aplikasi tidak menyimpan apa pun di browser: URL Web App tetap berasal dari file ini (DEFAULT_WEB_APP_URL), sedangkan seluruh data tersimpan hanya di Google Sheets. Mengubah URL di tab ini hanya berlaku sampai halaman dimuat ulang.</p>
     </div>
   </section>`;
 }
@@ -5402,21 +5394,17 @@ async function init(){
     CATEGORIES.map(reportPanelHTML).join('') +
     panelPengaturanHTML();
 
-  state.employees = await Store.get('employees', []);
-  state.records = await Store.get('records', []);
+  // Semua data dimuat dari Google Sheets (lihat bootstrapRealtimeData di akhir init); tidak ada cache browser.
+  state.employees = [];
+  state.records = [];
   populateSuggestionDatalists();
   populateManualSuggestionDatalists();
-  state.settings = await Store.get('settings', { webAppUrl:'', sheetPegawai:'Worksheet' });
-  if(!state.settings.webAppUrl && DEFAULT_WEB_APP_URL && DEFAULT_WEB_APP_URL.startsWith('http')){
-    state.settings.webAppUrl = DEFAULT_WEB_APP_URL;
-    Store.set('settings', state.settings);
-  }
-  state.bidangList = await Store.get('bidangList', []);
-  state.rekapPegawaiList = await Store.get('rekapPegawaiList', []);
-  { const hol = await Store.get('cutiHolidays', null); if(hol) state.cutiHolidays = hol; }
-  state.cutiDeferByNip = await Store.get('cutiDefer', {});
-  state.kgbData = await Store.get('kgbData', []);
-  state.kgbSelesai = await Store.get('kgbSelesai', []);
+  state.settings = { webAppUrl: (DEFAULT_WEB_APP_URL && DEFAULT_WEB_APP_URL.startsWith('http')) ? DEFAULT_WEB_APP_URL : '', sheetPegawai:'Worksheet' };
+  state.bidangList = [];
+  state.rekapPegawaiList = [];
+  state.cutiDeferByNip = {};
+  state.kgbData = [];
+  state.kgbSelesai = [];
   refreshAllReportYearOptions();
 
   document.getElementById('inpWebAppUrl').value = state.settings.webAppUrl || '';
@@ -5462,8 +5450,7 @@ async function init(){
       webAppUrl: document.getElementById('inpWebAppUrl').value.trim(),
       sheetPegawai: document.getElementById('inpSheetPegawai') ? document.getElementById('inpSheetPegawai').value.trim() : 'Worksheet'
     };
-    Store.set('settings', state.settings);
-    showBanner('settingsBanner','ok','Pengaturan tersimpan. Memuat data realtime...');
+    showBanner('settingsBanner','ok','Pengaturan diterapkan sementara (sampai halaman dimuat ulang). Memuat data realtime...');
     await bootstrapRealtimeData();
   });
   document.getElementById('btnTestConn').addEventListener('click', async ()=>{
