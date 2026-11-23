@@ -769,7 +769,7 @@ const CATEGORIES = [
  *  version" pada deployment yang sama — itu tidak mengubah URL), lalu publish
  *  ulang file ini ke GitHub Pages. Pengguna yang sudah pernah mengisi URL
  *  secara manual di tab Pengaturan tidak akan tertimpa oleh nilai ini. */
-const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbwl9YKIhSfNEvBSWI2Oj9wrPA2ZzNacLDm9N_YOmwhzy3ipIBa2u5bMH5sO_J2GEtcO9Q/exec';
+const DEFAULT_WEB_APP_URL = 'https://script.google.com/macros/s/AKfycbyYFnhMv1bbfm0-_4bcl0-JQcm84O9AFOPRbnctUN5RWT0eC8ihbdWvR3whmA7gKB--Og/exec';
 
 const HAS_APP_STORAGE = (typeof window.storage !== 'undefined' && window.storage);
 const HAS_LOCAL_STORAGE = (() => {
@@ -3486,18 +3486,24 @@ async function kgbPostChunks(type, items, size=250){
 
 async function loadKgbFromSheets(){
   const url = state.settings.webAppUrl;
-  if(!url) return false;
+  const time = new Date().toLocaleTimeString('id-ID');
+  if(!url){ state.kgbLoadInfo = { ok:false, time, error:'URL Web App belum diatur' }; return false; }
   try{
     const res = await fetch(`${url}?action=getKgb`);
+    if(res.ok === false){ state.kgbLoadInfo = { ok:false, time, error:'HTTP ' + res.status }; return false; }
     const json = await res.json();
-    if(json.error) return false;
+    if(json.error){ state.kgbLoadInfo = { ok:false, time, error:String(json.error) }; return false; }
     state.kgbData = json.dataKgb || [];
     state.kgbSelesai = json.selesai || [];
     state.kgbDebug = json.debug || null; // info sheet/kolom yang dibaca backend (null = skrip lama)
     Store.set('kgbData', state.kgbData);
     Store.set('kgbSelesai', state.kgbSelesai);
+    state.kgbLoadInfo = { ok:true, time, error:'' };
     return true;
-  }catch(err){ return false; }
+  }catch(err){
+    state.kgbLoadInfo = { ok:false, time, error: err instanceof SyntaxError ? 'balasan bukan JSON (periksa akses Web App = "Anyone")' : err.message };
+    return false;
+  }
 }
 
 function kgbStatsText(st){
@@ -3746,6 +3752,8 @@ function panelKgbHTML(){
           <div class="field full"><label>File Excel Data KGB</label><input type="file" id="kgbDataFile" accept=".xlsx,.xls"></div>
         </div>
         <div id="kgbDataBanner"></div>
+        <div class="report-meta" id="kgbLoadInfo" style="margin-top:10px;"></div>
+        <div class="btn-row"><button class="btn secondary" id="kgbReload">Muat Ulang dari Google Sheets</button></div>
         <div class="field-grid" style="margin-top:10px;">
           <div class="field full"><label>Cari di Data KGB (nama / NIP)</label><input type="text" id="kgbDataSearch" placeholder="Ketik nama atau NIP..."></div>
         </div>
@@ -3819,12 +3827,34 @@ function panelKgbHTML(){
 function kgbRenderActive(){
   const act = document.querySelector('#kgbMainTabs button.active');
   const key = act ? act.dataset.key : 'data';
-  if(key === 'data'){ renderKgbDataTable(); renderKgbPending(); }
+  if(key === 'data'){ renderKgbDataTable(); renderKgbPending(); renderKgbLoadInfo(); }
   else if(key === 'akan') renderKgbAkan();
   else if(key === 'selesai') renderKgbSelesai();
   else if(key === 'rekap') renderRekapUsulModule('kgb', true);
 }
 
+/** Statistik pencocokan NIP antara Data Pegawai dan Data KGB. */
+function kgbMatchStats(){
+  const dataSet = new Set(state.kgbData.map(d=> kgbNip(d.nip)).filter(Boolean));
+  const kejati = state.employees.filter(kgbIsKejati);
+  const matched = kejati.filter(e=> dataSet.has(kgbNip(e.nip))).length;
+  const empSet = new Set(state.employees.map(e=> kgbNip(e.nip)));
+  return { nEmp: state.employees.length, kejati: kejati.length, matched, orphan: state.kgbData.filter(d=> !empSet.has(kgbNip(d.nip))).length };
+}
+function renderKgbLoadInfo(){
+  const el = document.getElementById('kgbLoadInfo');
+  if(!el) return;
+  const li = state.kgbLoadInfo, url = state.settings.webAppUrl || '', st = kgbMatchStats();
+  const parts = [
+    'Web App: ' + (url ? '…' + url.slice(-12) : '(belum diatur)'),
+    li ? (li.ok ? 'dimuat ' + li.time : 'GAGAL dimuat ' + li.time + ': ' + li.error) : 'belum dimuat',
+    `Data KGB: ${state.kgbData.length} • KGB Selesai: ${state.kgbSelesai.length}`,
+    `Data Pegawai: ${st.nEmp} (Kejati ${st.kejati}) • cocok dengan Data KGB: ${st.matched}`,
+  ];
+  if(state.kgbData.length && st.nEmp && st.matched === 0) parts.push('PERINGATAN: tidak ada NIP yang cocok — NIP di sheet kemungkinan tersimpan sebagai angka (digit akhir berubah) atau formatnya berbeda.');
+  if(!st.nEmp) parts.push('Data Pegawai belum termuat (tab Sumber Data Pegawai).');
+  el.textContent = parts.join(' | ');
+}
 function kgbColLetter(i){
   let t = '', n = i + 1;
   while(n > 0){ const m = (n-1) % 26; t = String.fromCharCode(65+m) + t; n = Math.floor((n-1) / 26); }
@@ -3851,6 +3881,7 @@ async function kgbOnOpen(){
   kgbRenderActive(); // tampilkan cache lokal dulu
   if(!state.settings.webAppUrl) return;
   if(!(await loadKgbFromSheets())){
+    renderKgbLoadInfo();
     showBanner('kgbDataBanner','warn','Data KGB belum bisa dimuat dari Google Sheets. Pastikan koneksi internet aktif dan code.gs terbaru sudah di-deploy sebagai versi baru. Menampilkan data tersimpan lokal.');
     return;
   }
@@ -3876,6 +3907,9 @@ function wireKgbPanel(){
   });
   document.getElementById('kgbSelesaiFile').addEventListener('change', (e)=>{
     const f = e.target.files[0]; if(f) kgbImportFile('selesai', f); e.target.value = '';
+  });
+  document.getElementById('kgbReload').addEventListener('click', async (e)=>{
+    e.target.disabled = true; await kgbOnOpen(); e.target.disabled = false;
   });
   document.getElementById('kgbDataSearch').addEventListener('input', renderKgbDataTable);
   document.getElementById('kgbPendSearch').addEventListener('input', renderKgbPending);
