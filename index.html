@@ -1216,7 +1216,19 @@ async function handleSimpanKeLaporan(){
   await fetchRekapPegawaiFromSheets();
   renderRekapPegawai(true);
 }
+/** Daftar cek list berkas untuk menu usul: tercentang (ada) = tidak termasuk kekurangan. */
+function buildBerkasChecklist(record){
+  const um = USUL_MODULES[record.kategoriKey];
+  if(!um) return null;
+  const lacking = String(record.detail?.kekuranganBerkas || '').split(',').map(x=> x.trim()).filter(Boolean);
+  const low = lacking.map(x=> x.toLowerCase());
+  const names = um.berkasOptions.slice();
+  lacking.forEach(l=>{ if(!names.some(n=> n.toLowerCase() === l.toLowerCase())) names.push(l); });
+  return names.map(n=> ({ nama:n, ada: !low.includes(n.toLowerCase()) }));
+}
 async function pushRecordToSheets(record){
+  const checklist = buildBerkasChecklist(record);
+  if(checklist) record.berkas = checklist;
   // Kunci klasifikasi pegawai (Struktural/Fungsional/Jaksa/Tata Usaha) saat data disimpan,
   // supaya laporan historis tidak berubah ketika pegawai kemudian dimutasi. Jika pegawai
   // belum ditemukan di Data Pegawai, dikosongkan agar bisa dicocokkan lagi nanti.
