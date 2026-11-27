@@ -1257,7 +1257,7 @@ async function refreshFromSheetsAndRender(){
     fetchDeferFromSheets(),
     fetchRekapPegawaiFromSheets(),
   ]);
-  if(okRecords) await autoMarkCutiSelesai(); // tandai cuti yang sudah lewat tanggal selesainya
+  if(okRecords) await autoUpdateStatusCuti(); // Disetujui -> Berjalan / Selesai sesuai tanggal
   updateSyncIndicator(okRecords ? 'ok' : 'error');
   rerenderVisibleData();
 }
@@ -1856,7 +1856,7 @@ function panelCutiHTML(){
 
       <!-- ===== CUTI BERJALAN ===== -->
       <div id="cutiSub-berjalan" style="display:none;">
-        <p class="hint">Daftar pegawai yang sedang mengajukan permohonan cuti (belum disetujui) dan yang sedang menjalankan cuti pada rentang tanggal saat ini.</p>
+        <p class="hint">Daftar pegawai yang sedang mengajukan permohonan cuti (Pengajuan) dan yang cutinya Disetujui/Berjalan pada rentang tanggal hari ini. Cuti berstatus Ditolak, Ditunda, atau Dibatalkan, serta cuti yang sudah melewati Tanggal Selesai, tidak ditampilkan. Cuti Disetujui otomatis menjadi Berjalan begitu Tanggal Mulai tiba.</p>
         <div class="preview-wrap"><table class="data-table" id="cutiBerjalanTable"></table></div>
       </div>
 
@@ -1877,7 +1877,33 @@ function panelCutiHTML(){
                 ${CUTI_STATUS_OPTIONS.map(s=>`<option value="${s}">${s}</option>`).join('')}
               </select>
             </div>
+            <div class="field">
+              <label>Filter Periode</label>
+              <select id="filterPeriodeModeStatusCuti">
+                <option value="">Semua Tanggal</option>
+                <option value="range">Rentang Tanggal</option>
+                <option value="bulan">Bulan</option>
+              </select>
+            </div>
+            <div class="field" id="fieldRangeAwalStatusCuti" style="display:none;">
+              <label>Tanggal Awal</label>
+              <input type="date" id="filterTglAwalStatusCuti">
+            </div>
+            <div class="field" id="fieldRangeAkhirStatusCuti" style="display:none;">
+              <label>Tanggal Akhir</label>
+              <input type="date" id="filterTglAkhirStatusCuti">
+            </div>
+            <div class="field" id="fieldBulanStatusCuti" style="display:none;">
+              <label>Pilih Bulan</label>
+              <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
+                <input type="month" id="filterBulanStatusCuti" disabled>
+                <label style="display:flex;align-items:center;gap:6px;font-weight:400;font-size:12.5px;">
+                  <input type="checkbox" id="filterBulanSemuaStatusCuti" checked> Tampilkan Seluruh Bulan
+                </label>
+              </div>
+            </div>
           </div>
+          <div class="report-meta" id="rekapStatusInfo"></div>
           <div class="preview-wrap"><table class="data-table" id="rekapStatusTable"></table></div>
           <div class="btn-row">
             <button class="btn secondary" id="btnExportStatusExcel">Ekspor Excel</button>
@@ -2051,27 +2077,28 @@ function isCutiSedangBerjalanTanggal(r){
   return today >= mulai && today <= selesai;
 }
 
-/** Menandai otomatis cuti berstatus Disetujui/Berjalan sebagai "Selesai" begitu
- *  Tanggal Selesai-nya sudah lewat hari ini. Saldo cuti TIDAK ikut berubah --
- *  potongannya memang sudah terjadi sejak disetujui, dan "Selesai" tetap termasuk
- *  status yang memotong (lihat CUTI_DEDUCTING_STATUSES) supaya saldo tetap konsisten.
- *  Dipanggil setiap kali data disegarkan dari Google Sheets (lihat refreshFromSheetsAndRender),
- *  jadi berjalan otomatis tanpa perlu tombol atau aksi manual dari pengguna. */
-async function autoMarkCutiSelesai(){
+/** Memperbarui status cuti secara otomatis (dipanggil setiap data disegarkan dari Google Sheets,
+ *  setelah simpan permohonan, dan setelah status diubah di menu Cuti Berjalan):
+ *   - Disetujui dan hari ini berada di antara Tanggal Mulai dan Tanggal Selesai  -> "Berjalan"
+ *   - Disetujui/Berjalan dan Tanggal Selesai sudah lewat                          -> "Selesai"
+ *  Saldo cuti TIDAK ikut berubah: Disetujui, Berjalan, dan Selesai sama-sama berstatus memotong
+ *  (lihat CUTI_DEDUCTING_STATUSES). Mengembalikan true bila ada status yang diubah. */
+async function autoUpdateStatusCuti(){
   const today = new Date(); today.setHours(0,0,0,0);
-  const toUpdate = allCutiRecords().filter(r=>{
-    if(!CUTI_AUTO_SELESAI_FROM.includes(r.detail.statusCuti)) return false;
-    const selesai = parseDateOnlyLocal(r.detail.tglSelesai);
-    if(!selesai) return false;
-    return selesai < today;
+  const changes = [];
+  allCutiRecords().forEach(r=>{
+    const st = r.detail.statusCuti;
+    const mulai = parseDateOnlyLocal(r.detail.tglMulai), selesai = parseDateOnlyLocal(r.detail.tglSelesai);
+    if(!mulai || !selesai) return;
+    if(CUTI_AUTO_SELESAI_FROM.includes(st) && selesai < today) changes.push([r, 'Selesai']);
+    else if(st === 'Disetujui' && mulai <= today && today <= selesai) changes.push([r, 'Berjalan']);
   });
-  if(!toUpdate.length) return false;
-
-  for(const rec of toUpdate){
-    const prevStatus = rec.detail.statusCuti;
-    rec.detail.statusCuti = 'Selesai';
+  if(!changes.length) return false;
+  for(const [rec, baru] of changes){
+    const prev = rec.detail.statusCuti;
+    rec.detail.statusCuti = baru;
     const ok = await pushRecordToSheets(rec);
-    if(!ok) rec.detail.statusCuti = prevStatus; // gagal simpan -> batalkan perubahan lokal, dicoba lagi di polling berikutnya
+    if(!ok) rec.detail.statusCuti = prev; // gagal simpan -> batalkan perubahan lokal, dicoba lagi di polling berikutnya
   }
   return true;
 }
@@ -2583,14 +2610,24 @@ async function saveCutiRecord(){
     return;
   }
   await fetchAllRecordsFromSheets();
+  await autoUpdateStatusCuti(); // mis. Disetujui yang rentangnya mencakup hari ini langsung menjadi Berjalan
   btn.disabled = false;
   showBanner('formBanner_cuti','ok', `Permohonan cuti untuk ${nama} berhasil disimpan (status: ${statusAwal}).`);
   resetCutiForm();
+  rerenderVisibleData();
 }
 
 /* ---------- CUTI BERJALAN ---------- */
+/** Yang tampil di Cuti Berjalan: semua Pengajuan, serta cuti Disetujui/Berjalan yang rentang tanggalnya
+ *  mencakup hari ini. Ditolak/Ditunda/Dibatalkan, Selesai, dan cuti yang sudah lewat tidak ditampilkan. */
+function isCutiTampilDiBerjalan(r){
+  const st = r.detail.statusCuti;
+  if(st === 'Pengajuan') return true;
+  if(st === 'Disetujui' || st === 'Berjalan') return isCutiSedangBerjalanTanggal(r);
+  return false;
+}
 function renderCutiBerjalan(){
-  const list = allCutiRecords().filter(r=> r.detail.statusCuti === 'Pengajuan' || isCutiSedangBerjalanTanggal(r));
+  const list = allCutiRecords().filter(isCutiTampilDiBerjalan);
   const table = document.getElementById('cutiBerjalanTable');
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada pengajuan atau cuti yang sedang berjalan.</td></tr>'; return; }
   table.innerHTML = '<tr><th>Nama</th><th>NIP</th><th>Bidang</th><th>Jenis Cuti</th><th>Tanggal Mulai</th><th>Tanggal Selesai</th><th>Jml Hari</th><th>Status Cuti</th></tr>' +
@@ -2620,6 +2657,7 @@ function renderCutiBerjalan(){
         alert('Gagal menyimpan perubahan status ke Google Sheets. Periksa koneksi internet Anda.');
         return;
       }
+      await autoUpdateStatusCuti(); // Disetujui yang sedang dalam rentang tanggal otomatis menjadi Berjalan
       await fetchAllRecordsFromSheets();
       sel.disabled = false;
       renderCutiBerjalan();
@@ -2628,9 +2666,43 @@ function renderCutiBerjalan(){
 }
 
 /* ---------- REKAP CUTI ---------- */
+/** Rentang periode (Rentang Tanggal / Bulan) pada Rekap Status; null bila "Semua Tanggal". */
+function getPeriodeStatusCuti(){
+  const mode = document.getElementById('filterPeriodeModeStatusCuti').value;
+  let pStart = null, pEnd = null;
+  if(mode === 'range'){
+    const a = document.getElementById('filterTglAwalStatusCuti').value, b = document.getElementById('filterTglAkhirStatusCuti').value;
+    pStart = a ? parseDateOnlyLocal(a) : null; pEnd = b ? parseDateOnlyLocal(b) : null;
+  } else if(mode === 'bulan' && !document.getElementById('filterBulanSemuaStatusCuti').checked){
+    const range = monthInputToRange(document.getElementById('filterBulanStatusCuti').value);
+    if(range){ pStart = range.start; pEnd = range.end; }
+  }
+  return { pStart, pEnd };
+}
+function wirePeriodeStatusCuti(){
+  const modeSel = document.getElementById('filterPeriodeModeStatusCuti');
+  modeSel.addEventListener('change', ()=>{
+    const v = modeSel.value;
+    document.getElementById('fieldRangeAwalStatusCuti').style.display = (v === 'range') ? '' : 'none';
+    document.getElementById('fieldRangeAkhirStatusCuti').style.display = (v === 'range') ? '' : 'none';
+    document.getElementById('fieldBulanStatusCuti').style.display = (v === 'bulan') ? '' : 'none';
+    renderRekapStatus();
+  });
+  document.getElementById('filterTglAwalStatusCuti').addEventListener('change', renderRekapStatus);
+  document.getElementById('filterTglAkhirStatusCuti').addEventListener('change', renderRekapStatus);
+  const chk = document.getElementById('filterBulanSemuaStatusCuti'), inp = document.getElementById('filterBulanStatusCuti');
+  chk.addEventListener('change', ()=>{ inp.disabled = chk.checked; renderRekapStatus(); });
+  inp.addEventListener('change', renderRekapStatus);
+}
 function renderRekapStatus(){
   const filter = document.getElementById('filterStatusCuti').value;
-  const list = allCutiRecords().filter(r=> !filter || r.detail.statusCuti === filter);
+  const { pStart, pEnd } = getPeriodeStatusCuti();
+  const list = allCutiRecords().filter(r=>{
+    if(filter && r.detail.statusCuti !== filter) return false;
+    if((pStart || pEnd) && !isWithinPeriodeFilter(parseDateOnlyLocal(r.detail.tglMulai), parseDateOnlyLocal(r.detail.tglSelesai), pStart, pEnd)) return false;
+    return true;
+  });
+  document.getElementById('rekapStatusInfo').textContent = `${list.length} data` + ((pStart || pEnd) ? ' (cuti yang rentang tanggalnya beririsan dengan periode terpilih)' : '');
   const table = document.getElementById('rekapStatusTable');
   if(!list.length){ table.innerHTML = '<tr><td class="empty-state">Tidak ada data.</td></tr>'; return; }
   table.innerHTML = '<tr><th>Nama</th><th>NIP</th><th>Bidang</th><th>Jenis Cuti</th><th>Tgl Mulai</th><th>Tgl Selesai</th><th>Jml Hari</th><th>Status</th></tr>' +
@@ -2979,6 +3051,7 @@ function wireCutiPanel(){
   document.getElementById('filterBidangCuti').addEventListener('change', renderRekapBidang);
   wireStatusBidangMultiselect();
   wirePeriodeBidangCuti();
+  wirePeriodeStatusCuti();
 
   document.getElementById('btnExportStatusExcel').addEventListener('click', exportRekapStatusExcel);
   document.getElementById('btnExportStatusPDF').addEventListener('click', exportRekapStatusPDF);
